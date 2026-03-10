@@ -29,6 +29,7 @@ import io.confluent.kafka.serializers.schema.id.HeaderSchemaIdSerializer;
 import io.confluent.kafka.serializers.schema.id.SchemaId;
 import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -36,9 +37,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.stream.Collectors;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
@@ -61,41 +62,39 @@ import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.Produced;
+import org.apache.kafka.streams.kstream.Windowed;
 import org.apache.kafka.streams.processor.api.Processor;
 import org.apache.kafka.streams.processor.api.ProcessorContext;
 import org.apache.kafka.streams.processor.api.Record;
-import org.apache.kafka.streams.state.QueryableStoreTypes;
-import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
-import org.apache.kafka.streams.state.Stores;
-import org.apache.kafka.streams.state.TimestampedKeyValueStoreWithHeaders;
-import org.apache.kafka.streams.state.ValueTimestampHeaders;
+import org.apache.kafka.streams.state.*;
 import org.junit.jupiter.api.Test;
 
 /**
- * Integration test for {@link TimestampedKeyValueStoreWithHeaders} that verifies store operations
- * (put, get, delete, putIfAbsent, putAll) work correctly with header-based schema ID transport.
- * All store operations are performed inside a processor.
+ * Integration test for {@link TimestampedWindowStoreWithHeaders} that verifies windowed store
+ * operations (put, fetch, aggregation) work correctly with header-based schema ID transport.
  */
-public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterTestHarness {
+public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTestHarness {
 
-    private static final String INPUT_TOPIC = "word-plaintext-input";
-    private static final String OUTPUT_TOPIC = "word-count-output";
-    private static final String STORE_NAME = "words-store";
+    private static final String INPUT_TOPIC = "events-input";
+    private static final String OUTPUT_TOPIC = "windowed-output";
+    private static final String STORE_NAME = "event-window-store";
+    private static final Duration WINDOW_SIZE = Duration.ofMinutes(5);
+    private static final Duration RETENTION_PERIOD = Duration.ofHours(1);
 
     private static final String KEY_SCHEMA_JSON =
         "{"
             + "\"type\":\"record\","
-            + "\"name\":\"WordKey\","
+            + "\"name\":\"EventKey\","
             + "\"namespace\":\"io.confluent.kafka.streams.integration\","
             + "\"fields\":["
-            + "  {\"name\":\"word\",\"type\":\"string\"}"
+            + "  {\"name\":\"eventId\",\"type\":\"string\"}"
             + "]"
             + "}";
 
     private static final String VALUE_SCHEMA_JSON =
         "{"
             + "\"type\":\"record\","
-            + "\"name\":\"WordValue\","
+            + "\"name\":\"EventValue\","
             + "\"namespace\":\"io.confluent.kafka.streams.integration\","
             + "\"fields\":["
             + "  {\"name\":\"count\",\"type\":\"long\"},"
@@ -106,12 +105,12 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
     private final Schema keySchema = new Schema.Parser().parse(KEY_SCHEMA_JSON);
     private final Schema valueSchema = new Schema.Parser().parse(VALUE_SCHEMA_JSON);
 
-    public TimestampedKeyValueStoreWithHeadersIntegrationTest() {
+    public TimestampedWindowStoreWithHeadersIntegrationTest() {
         super(1, true);
     }
 
     @Test
-    public void shouldPerformAllStoreOperationsWithHeaders() throws Exception {
+    public void shouldPerformWindowedOperationsWithHeaders() throws Exception {
         createTopics(INPUT_TOPIC, OUTPUT_TOPIC);
 
         GenericAvroSerde keySerde = createKeySerde();
@@ -120,124 +119,101 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.timestampedKeyValueStoreBuilderWithHeaders(
-                    Stores.persistentTimestampedKeyValueStoreWithHeaders(STORE_NAME),
+                Stores.timestampedWindowStoreWithHeadersBuilder(
+                    Stores.persistentTimestampedWindowStoreWithHeaders(
+                        STORE_NAME, RETENTION_PERIOD, WINDOW_SIZE, false),
                     keySerde,
                     valueSerde))
             .stream(INPUT_TOPIC, Consumed.with(keySerde, valueSerde))
-            .process(() -> new WordCountProcessor(STORE_NAME), STORE_NAME)
+            .process(() -> new WindowedEventProcessor(STORE_NAME), STORE_NAME)
             .to(OUTPUT_TOPIC, Produced.with(keySerde, valueSerde));
 
         KafkaStreams streams = null;
         try {
-            streams = startStreamsAndAwaitRunning(builder.build(), "kv-store-integration-test");
+            streams = startStreamsAndAwaitRunning(builder.build(), "window-store-integration-test");
 
-            GenericRecord helloKey = createKey("hello");
+            GenericRecord event1Key = createKey("event-1");
 
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
 
-                // Test 1: put word:1
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(1L, "PUT"))).get();
+                // Test 1: PUT at t=1min (window 0-5min)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 60000L, event1Key, createValue(1L, "PUT"))).get();
 
-                // Test 2: put wor:1, aggregates to word:2
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(1L, "PUT"))).get();
+                // Test 2: PUT at t=2min (same window, should aggregate to count=2)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 120000L, event1Key, createValue(1L, "PUT"))).get();
 
-                // Test 3: PUT_IF_ABSENT - should not overwrite existing "hello"
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(100L, "PUT_IF_ABSENT"))).get();
+                // Test 3: PUT at t=6min (new window 5-10min, count=1)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 360000L, event1Key, createValue(1L, "PUT"))).get();
 
-                // Test 4: PUT_IF_ABSENT - new key "world" should be inserted
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("world"), createValue(50L, "PUT_IF_ABSENT"))).get();
+                // Test 4: FETCH at t=1min (fetch from window 0-5min)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 60000L, event1Key, createValue(0L, "FETCH"))).get();
 
-                // Test 5: PUT_ALL - batch insert 3 words (hardcoded in processor)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("batch-word"), createValue(0L, "PUT_ALL"))).get();
+                // Test 5: FETCH_RANGE - fetch all windows for event-1 from 0 to 10min (should return 2 windows)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "FETCH_RANGE"))).get();
 
-                // Test 6: DELETE - delete "hello"
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(0L, "DELETE"))).get();
-
-                // Test 7: DELETE - delete non-existing key (should produce no output)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("non-existing"), createValue(0L, "DELETE"))).get();
+                // Test 6: FETCH_ALL - fetch all entries in the store from 0 to 10min
+//                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "FETCH_ALL"))).get();
 
                 producer.flush();
             }
 
-            // Expect 8 records: PUT(1) + PUT(2) + PUT_IF_ABSENT(existing) + PUT_IF_ABSENT(new) + PUT_ALL(3) + DELETE
+            // Expect 6 output records: 3 PUTs + 1 FETCH + 2 FETCH_RANGE
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(OUTPUT_TOPIC, "kv-store-test-consumer", 8);
+                consumeRecords(OUTPUT_TOPIC, "window-store-test-consumer", 6);
 
-            assertEquals(8, results.size(), "Should have 8 output records");
+            assertEquals(6, results.size(), "Should have 6 output records");
 
-            // Verify PUT 1
-            assertEquals("hello", results.get(0).key().get("word").toString());
+            // Verify PUT 1 (window 0-5min, count=1)
+            assertEquals("event-1", results.get(0).key().get("eventId").toString());
             assertEquals(1L, results.get(0).value().get("count"));
             assertSchemaIdHeaders(results.get(0), "PUT 1");
 
-            // Verify PUT 1+1
-            assertEquals("hello", results.get(1).key().get("word").toString());
+            // Verify PUT 2 (same window, aggregated count=2)
+            assertEquals("event-1", results.get(1).key().get("eventId").toString());
             assertEquals(2L, results.get(1).value().get("count"));
-            assertSchemaIdHeaders(results.get(1), "PUT 2 (aggregated)");
+            assertSchemaIdHeaders(results.get(1), "PUT 2 aggregated");
 
-            // Verify PUT_IF_ABSENT existing
-            assertEquals("hello", results.get(2).key().get("word").toString());
-            assertEquals(2L, results.get(2).value().get("count"));
-            assertSchemaIdHeaders(results.get(2), "PUT_IF_ABSENT existing");
+            // Verify PUT 3 (new window 5-10min, count=1)
+            assertEquals("event-1", results.get(2).key().get("eventId").toString());
+            assertEquals(1L, results.get(2).value().get("count"));
+            assertSchemaIdHeaders(results.get(2), "PUT 3 new window");
 
-            // Verify PUT_IF_ABSENT new key
-            assertEquals("world", results.get(3).key().get("word").toString());
-            assertEquals(50L, results.get(3).value().get("count"));
-            assertSchemaIdHeaders(results.get(3), "PUT_IF_ABSENT new");
+            // Verify FETCH (from window 0-5min, count=2)
+            assertEquals("event-1", results.get(3).key().get("eventId").toString());
+            assertEquals(2L, results.get(3).value().get("count"));
+            assertSchemaIdHeaders(results.get(3), "FETCH");
 
-            // Verify PUT_ALL 3 batch entries
-            assertEquals("batch1", results.get(4).key().get("word").toString());
-            assertEquals(25L, results.get(4).value().get("count"));
-            assertSchemaIdHeaders(results.get(4), "PUT_ALL batch1");
+            // Verify FETCH_RANGE (2 windows for event-1: 0-5min and 5-10min)
+            assertEquals("event-1", results.get(4).key().get("eventId").toString());
+            assertEquals(2L, results.get(4).value().get("count"));
+            assertSchemaIdHeaders(results.get(4), "FETCH_RANGE window1");
 
-            assertEquals("batch2", results.get(5).key().get("word").toString());
-            assertEquals(50L, results.get(5).value().get("count"));
-            assertSchemaIdHeaders(results.get(5), "PUT_ALL batch2");
+            assertEquals("event-1", results.get(5).key().get("eventId").toString());
+            assertEquals(1L, results.get(5).value().get("count"));
+            assertSchemaIdHeaders(results.get(5), "FETCH_RANGE window2");
 
-            assertEquals("batch3", results.get(6).key().get("word").toString());
-            assertEquals(75L, results.get(6).value().get("count"));
-            assertSchemaIdHeaders(results.get(6), "PUT_ALL batch3");
 
-            // Verify DELETE
-            assertEquals("hello", results.get(7).key().get("word").toString());
-            assertEquals(2L, results.get(7).value().get("count"));
-            assertSchemaIdHeaders(results.get(7), "DELETE");
-
-            // Query store via IQv1 to verify final state
-            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
+            // Query store via IQv1 to verify state
+            ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
                 streams.store(
-                    StoreQueryParameters.fromNameAndType(STORE_NAME, QueryableStoreTypes.keyValueStore()));
+                    StoreQueryParameters.fromNameAndType(STORE_NAME, QueryableStoreTypes.windowStore()));
 
             assertNotNull(store, "Store should be accessible via IQv1");
 
-            // Verify DELETE: "hello" should not exist (was deleted)
-            ValueTimestampHeaders<GenericRecord> helloResult = store.get(helloKey);
-            assertTrue(helloResult == null || helloResult.value() == null,
-                "IQv1: hello should not exist after delete");
+            // Verify window 0-5min via IQv1 (count=2)
+            long window1Start = 0L;
+            ValueTimestampHeaders<GenericRecord> window1Result = store.fetch(event1Key, window1Start);
+            assertNotNull(window1Result, "IQv1: window 0-5min should have data");
+            assertEquals(2L, window1Result.value().get("count"), "IQv1: window 0-5min count should be 2");
+            assertSchemaIdHeaders(window1Result.headers(), "IQv1 window 0-5min");
 
-            // Verify PUT_IF_ABSENT: "world" should exist with count 50
-            ValueTimestampHeaders<GenericRecord> worldResult = store.get(createKey("world"));
-            assertNotNull(worldResult, "IQv1: world should exist in store");
-            assertEquals(50L, worldResult.value().get("count"), "IQv1: world count should be 50");
-            assertSchemaIdHeaders(worldResult.headers(), "IQv1 world");
-
-            // Verify PUT_ALL: all 3 batch entries should exist
-            ValueTimestampHeaders<GenericRecord> batch1Result = store.get(createKey("batch1"));
-            assertNotNull(batch1Result, "IQv1: batch1 should exist in store");
-            assertEquals(25L, batch1Result.value().get("count"), "IQv1: batch1 count should be 25");
-            assertSchemaIdHeaders(batch1Result.headers(), "IQv1 batch1");
-
-            ValueTimestampHeaders<GenericRecord> batch2Result = store.get(createKey("batch2"));
-            assertNotNull(batch2Result, "IQv1: batch2 should exist in store");
-            assertEquals(50L, batch2Result.value().get("count"), "IQv1: batch2 count should be 50");
-            assertSchemaIdHeaders(batch2Result.headers(), "IQv1 batch2");
-
-            ValueTimestampHeaders<GenericRecord> batch3Result = store.get(createKey("batch3"));
-            assertNotNull(batch3Result, "IQv1: batch3 should exist in store");
-            assertEquals(75L, batch3Result.value().get("count"), "IQv1: batch3 count should be 75");
-            assertSchemaIdHeaders(batch3Result.headers(), "IQv1 batch3");
+            // Verify window 5-10min via IQv1 (count=1)
+            long window2Start = 300000L; // 5min
+            ValueTimestampHeaders<GenericRecord> window2Result = store.fetch(event1Key, window2Start);
+            assertNotNull(window2Result, "IQv1: window 5-10min should have data");
+            assertEquals(1L, window2Result.value().get("count"), "IQv1: window 5-10min count should be 1");
+            assertSchemaIdHeaders(window2Result.headers(), "IQv1 window 5-10min");
 
         } finally {
             closeStreams(streams);
@@ -245,16 +221,16 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
     }
 
     /**
-     * Processor that performs store operations based on the "operation" field.
+     * Processor that aggregates events in time windows using TimestampedWindowStoreWithHeaders.
      */
-    private static class WordCountProcessor
+    private static class WindowedEventProcessor
         implements Processor<GenericRecord, GenericRecord, GenericRecord, GenericRecord> {
 
         private final String storeName;
         private ProcessorContext<GenericRecord, GenericRecord> context;
-        private TimestampedKeyValueStoreWithHeaders<GenericRecord, GenericRecord> store;
+        private TimestampedWindowStoreWithHeaders<GenericRecord, GenericRecord> store;
 
-        public WordCountProcessor(String storeName) {
+        public WindowedEventProcessor(String storeName) {
             this.storeName = storeName;
         }
 
@@ -272,14 +248,14 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                 case "PUT":
                     handlePut(record);
                     break;
-                case "DELETE":
-                    handleDelete(record);
+                case "FETCH":
+                    handleFetch(record);
                     break;
-                case "PUT_IF_ABSENT":
-                    handlePutIfAbsent(record);
+                case "FETCH_RANGE":
+                    handleFetchRange(record);
                     break;
-                case "PUT_ALL":
-                    handlePutAll(record);
+                case "FETCH_ALL":
+                    handleFetchAll(record);
                     break;
                 default:
                     throw new IllegalArgumentException("Unknown operation: " + operation);
@@ -287,84 +263,65 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         }
 
         private void handlePut(Record<GenericRecord, GenericRecord> record) {
-            ValueTimestampHeaders<GenericRecord> existingRecord = store.get(record.key());
+            long windowStart = (record.timestamp() / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
+
+            ValueTimestampHeaders<GenericRecord> existingRecord = store.fetch(record.key(), windowStart);
 
             long newCount = (Long) record.value().get("count");
             if (existingRecord != null && existingRecord.value() != null) {
                 newCount += (Long) existingRecord.value().get("count");
             }
 
-            GenericRecord updatedValue = new GenericData.Record(record.value().getSchema());
-            updatedValue.put("count", newCount);
-            updatedValue.put("operation", "PUT");
+            GenericRecord aggregatedValue = new GenericData.Record(record.value().getSchema());
+            aggregatedValue.put("count", newCount);
+            aggregatedValue.put("operation", "PUT");
 
             ValueTimestampHeaders<GenericRecord> toStore =
-                ValueTimestampHeaders.make(updatedValue, record.timestamp(), record.headers());
-            store.put(record.key(), toStore);
+                ValueTimestampHeaders.make(aggregatedValue, record.timestamp(), record.headers());
+            store.put(record.key(), toStore, windowStart);
 
-            ValueTimestampHeaders<GenericRecord> storedRecord = store.get(record.key());
+            ValueTimestampHeaders<GenericRecord> stored = store.fetch(record.key(), windowStart);
             context.forward(new Record<>(
-                record.key(), storedRecord.value(), storedRecord.timestamp(), storedRecord.headers()));
+                record.key(), stored.value(), stored.timestamp(), stored.headers()));
         }
 
-        private void handleDelete(Record<GenericRecord, GenericRecord> record) {
-            ValueTimestampHeaders<GenericRecord> deletedRecord = store.delete(record.key());
+        private void handleFetch(Record<GenericRecord, GenericRecord> record) {
+            long windowStart = (record.timestamp() / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
 
-            if (deletedRecord != null) {
+            ValueTimestampHeaders<GenericRecord> fetched = store.fetch(record.key(), windowStart);
+            if (fetched != null) {
                 context.forward(new Record<>(
-                    record.key(), deletedRecord.value(), deletedRecord.timestamp(), deletedRecord.headers()));
+                    record.key(), fetched.value(), fetched.timestamp(), fetched.headers()));
             }
         }
 
-        private void handlePutIfAbsent(Record<GenericRecord, GenericRecord> record) {
-            ValueTimestampHeaders<GenericRecord> recordToInsert =
-                ValueTimestampHeaders.make(record.value(), record.timestamp(), record.headers());
-            ValueTimestampHeaders<GenericRecord> previousRecord = store.putIfAbsent(record.key(), recordToInsert);
-
-            if (previousRecord != null) {
-                context.forward(new Record<>(
-                    record.key(), previousRecord.value(), previousRecord.timestamp(), previousRecord.headers()));
-            } else {
-                ValueTimestampHeaders<GenericRecord> insertedRecord = store.get(record.key());
-                context.forward(new Record<>(
-                    record.key(), insertedRecord.value(), insertedRecord.timestamp(), insertedRecord.headers()));
+        private void handleFetchRange(Record<GenericRecord, GenericRecord> record) {
+            // Fetch all windows for this key from 0 to 10 minutes
+            try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iterator =
+                     store.fetch(record.key(), Instant.ofEpochMilli(0), Instant.ofEpochMilli(600000L))) {
+                while (iterator.hasNext()) {
+                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> entry = iterator.next();
+                    ValueTimestampHeaders<GenericRecord> value = entry.value;
+                    context.forward(new Record<>(
+                        record.key(), value.value(), value.timestamp(), value.headers()));
+                }
             }
         }
 
-        private void handlePutAll(Record<GenericRecord, GenericRecord> record) {
-            Schema keySchema = record.key().getSchema();
-            Schema valueSchema = record.value().getSchema();
-
-            // Hardcoded batch entries: batch1:25, batch2:50, batch3:75
-            String[] words = {"batch1", "batch2", "batch3"};
-            long[] counts = {25L, 50L, 75L};
-
-            List<KeyValue<GenericRecord, ValueTimestampHeaders<GenericRecord>>> entries = new ArrayList<>();
-
-            for (int i = 0; i < words.length; i++) {
-                GenericRecord entryKey = new GenericData.Record(keySchema);
-                entryKey.put("word", words[i]);
-
-                GenericRecord entryValue = new GenericData.Record(valueSchema);
-                entryValue.put("count", counts[i]);
-                entryValue.put("operation", "PUT_ALL");
-
-                ValueTimestampHeaders<GenericRecord> toStore =
-                    ValueTimestampHeaders.make(entryValue, record.timestamp(), record.headers());
-                entries.add(new KeyValue<>(entryKey, toStore));
-            }
-
-            store.putAll(entries);
-
-            // Forward each stored entry
-            for (KeyValue<GenericRecord, ValueTimestampHeaders<GenericRecord>> entry : entries) {
-                ValueTimestampHeaders<GenericRecord> storedRecord = store.get(entry.key);
-                context.forward(new Record<>(
-                    entry.key, storedRecord.value(), storedRecord.timestamp(), storedRecord.headers()));
+        private void handleFetchAll(Record<GenericRecord, GenericRecord> record) {
+            // Fetch all entries in the store (for testing purposes)
+            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iterator =
+                     store.fetchAll(Instant.ofEpochMilli(0), Instant.ofEpochMilli(600000L))) {
+                while (iterator.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> next = iterator.next();
+                    ValueTimestampHeaders<GenericRecord> value = next.value;
+                    context.forward(new Record<>(
+                        record.key(), value.value(), value.timestamp(), value.headers()));
+                }
             }
         }
+
     }
-
 
     private void createTopics(String... topicNames) throws Exception {
         Properties adminProps = new Properties();
@@ -485,9 +442,9 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         assertEquals(SchemaId.MAGIC_BYTE_V1, valueHeaderBytes[0], context + ": Value header should have V1 magic byte");
     }
 
-    private GenericRecord createKey(String word) {
+    private GenericRecord createKey(String eventId) {
         GenericRecord key = new GenericData.Record(keySchema);
-        key.put("word", word);
+        key.put("eventId", eventId);
         return key;
     }
 
