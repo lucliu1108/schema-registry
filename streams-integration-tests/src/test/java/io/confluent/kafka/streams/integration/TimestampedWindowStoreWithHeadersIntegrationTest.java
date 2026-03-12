@@ -137,14 +137,14 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
 
-                // Test 1: PUT at t=1min (window 0-5min)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 60000L, event1Key, createValue(1L, "PUT"))).get();
+                // Test 1: PUT at t=1min, count=5 (window 0-5min)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 60000L, event1Key, createValue(5L, "PUT"))).get();
 
-                // Test 2: PUT at t=2min (same window, should aggregate to count=2)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 120000L, event1Key, createValue(1L, "PUT"))).get();
+                // Test 2: PUT at t=2min (same window, should aggregate to count=8)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 120000L, event1Key, createValue(3L, "PUT"))).get();
 
-                // Test 3: PUT at t=6min (new window 5-10min, count=1)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 360000L, event1Key, createValue(1L, "PUT"))).get();
+                // Test 3: PUT at t=6min, count=7 (window 5-10min)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 360000L, event1Key, createValue(7L, "PUT"))).get();
 
                 // Test 4: FETCH at t=1min (fetch from window 0-5min)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 60000L, event1Key, createValue(0L, "FETCH"))).get();
@@ -152,101 +152,105 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                 // Test 5: FETCH_RANGE - fetch all windows for event-1 from 0 to 10min (should return 2 windows)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "FETCH_RANGE"))).get();
 
-                // Test 6: BACKWARD_FETCH - fetch windows in reverse order for event-1 (should return 2 windows in reverse)
+                // Test 6: BACKWARD_FETCH - fetch windows in reverse order for event-1 from 4min to 10min
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "BACKWARD_FETCH"))).get();
 
-                // Test 7: PUT event-2 at t=2min (window 0-5min) for key range tests
+                // Test 7: PUT event-2 at t=2min (window 0-5min)
                 GenericRecord event2Key = createKey("event-2");
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 120000L, event2Key, createValue(10L, "PUT"))).get();
 
-                // Test 8: BACKWARD_FETCH_RANGE - fetch windows for key range event-1 to event-2 in reverse
+                // Test 8: FETCH_ALL - fetch all entries in store from 0 to 10min (should return 3 windows)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "FETCH_ALL"))).get();
+
+                // Test 9: BACKWARD_FETCH_RANGE - fetch windows for key range event-1 to event-2 in reverse from 0-10min
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "BACKWARD_FETCH_RANGE"))).get();
 
-                // TODO: Test 9: BACKWARD_FETCH_ALL - temporarily not supported
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "BACKWARD_FETCH_ALL"))).get();
+                // Test 10: BACKWARD_FETCH_ALL - fetch all entries in store in reverse from 4min to 10min (should return only window 5-10min for event-1)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "BACKWARD_FETCH_ALL"))).get();
 
                 producer.flush();
             }
 
-            // Expect 12 output records:
-            // 3 PUTs (event-1) + 1 FETCH + 2 FETCH_RANGE + 2 BACKWARD_FETCH + 1 PUT (event-2) + 3 BACKWARD_FETCH_RANGE = 12
+            // 3 PUTs (event-1) + 1 FETCH + 2 FETCH_RANGE + 1 BACKWARD_FETCH
+            // + 1 PUT (event-2) + 3 FETCH_ALL + 3 BACKWARD_FETCH_RANGE + 1 BACKWARD_FETCH_ALL = 15
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(OUTPUT_TOPIC, "window-store-test-consumer", 12);
+                consumeRecords(OUTPUT_TOPIC, "window-store-test-consumer", 15);
 
-            assertEquals(12, results.size(), "Should have 12 output records");
+            assertEquals(15, results.size(), "Should have 15 output records");
 
-            // Verify PUT 1 (window 0-5min, count=1)
+            // Verify PUT 1 (window 0-5min, count=5)
             assertEquals("event-1", results.get(0).key().get("eventId").toString());
-            assertEquals(1L, results.get(0).value().get("count"));
+            assertEquals(5L, results.get(0).value().get("count"));
             assertSchemaIdHeaders(results.get(0), "PUT 1");
 
-            // Verify PUT 2 (same window, aggregated count=2)
+            // Verify PUT 2 (same window, aggregated count=8)
             assertEquals("event-1", results.get(1).key().get("eventId").toString());
-            assertEquals(2L, results.get(1).value().get("count"));
+            assertEquals(8L, results.get(1).value().get("count"));
             assertSchemaIdHeaders(results.get(1), "PUT 2 aggregated");
 
-            // Verify PUT 3 (new window 5-10min, count=1)
+            // Verify PUT 3 (new window 5-10min, count=7)
             assertEquals("event-1", results.get(2).key().get("eventId").toString());
-            assertEquals(1L, results.get(2).value().get("count"));
+            assertEquals(7L, results.get(2).value().get("count"));
             assertSchemaIdHeaders(results.get(2), "PUT 3 new window");
 
-            // Verify FETCH (from window 0-5min, count=2)
+            // Verify FETCH (from window 0-5min, count=8)
             assertEquals("event-1", results.get(3).key().get("eventId").toString());
-            assertEquals(2L, results.get(3).value().get("count"));
+            assertEquals(8L, results.get(3).value().get("count"));
             assertSchemaIdHeaders(results.get(3), "FETCH");
 
             // Verify FETCH_RANGE (2 windows for event-1: 0-5min and 5-10min)
             assertEquals("event-1", results.get(4).key().get("eventId").toString());
-            assertEquals(2L, results.get(4).value().get("count"));
+            assertEquals(8L, results.get(4).value().get("count"));
             assertSchemaIdHeaders(results.get(4), "FETCH_RANGE window1");
 
             assertEquals("event-1", results.get(5).key().get("eventId").toString());
-            assertEquals(1L, results.get(5).value().get("count"));
+            assertEquals(7L, results.get(5).value().get("count"));
             assertSchemaIdHeaders(results.get(5), "FETCH_RANGE window2");
 
-            // Verify BACKWARD_FETCH (2 windows in reverse: 5-10min first, then 0-5min)
-//            assertEquals("event-1", results.get(6).key().get("eventId").toString());
-//            assertEquals(1L, results.get(6).value().get("count")); // window 5-10min first (reverse order)
-//            assertSchemaIdHeaders(results.get(6), "BACKWARD_FETCH window2");
-
-            assertEquals("event-1", results.get(7).key().get("eventId").toString());
-            assertEquals(2L, results.get(7).value().get("count")); // window 0-5min second
-            assertSchemaIdHeaders(results.get(7), "BACKWARD_FETCH window1");
+            // Verify BACKWARD_FETCH (range 4-10min, only window 5-10min)
+            assertEquals("event-1", results.get(6).key().get("eventId").toString());
+            assertEquals(7L, results.get(6).value().get("count"));
+            assertSchemaIdHeaders(results.get(6), "BACKWARD_FETCH window 5-10min");
 
             // Verify PUT event-2 (window 0-5min, count=10)
-            assertEquals("event-2", results.get(8).key().get("eventId").toString());
-            assertEquals(10L, results.get(8).value().get("count"));
-            assertSchemaIdHeaders(results.get(8), "PUT event-2");
+            assertEquals("event-2", results.get(7).key().get("eventId").toString());
+            assertEquals(10L, results.get(7).value().get("count"));
+            assertSchemaIdHeaders(results.get(7), "PUT event-2");
 
-            // Verify BACKWARD_FETCH_RANGE (3 windows total: event-2 window, event-1 windows in reverse)
-//            assertSchemaIdHeaders(results.get(9), "BACKWARD_FETCH_RANGE 1");
-//            assertSchemaIdHeaders(results.get(10), "BACKWARD_FETCH_RANGE 2");
-//            assertSchemaIdHeaders(results.get(11), "BACKWARD_FETCH_RANGE 3");
+            // Verify FETCH_ALL (3 windows total: event-1 windows + event-2 window)
+            assertSchemaIdHeaders(results.get(8), "FETCH_ALL 1");
+            assertSchemaIdHeaders(results.get(9), "FETCH_ALL 2");
+            assertSchemaIdHeaders(results.get(10), "FETCH_ALL 3");
 
-            // TODO: Verify BACKWARD_FETCH_ALL - temporarily not supported
-            // assertSchemaIdHeaders(results.get(12), "BACKWARD_FETCH_ALL 1");
-            // assertSchemaIdHeaders(results.get(13), "BACKWARD_FETCH_ALL 2");
-            // assertSchemaIdHeaders(results.get(14), "BACKWARD_FETCH_ALL 3");
+            // Verify BACKWARD_FETCH_RANGE (3 windows total in reverse order)
+            assertSchemaIdHeaders(results.get(11), "BACKWARD_FETCH_RANGE 1");
+            assertSchemaIdHeaders(results.get(12), "BACKWARD_FETCH_RANGE 2");
+            assertSchemaIdHeaders(results.get(13), "BACKWARD_FETCH_RANGE 3");
 
-            // Query store via IQv1 to verify state
+            // Verify BACKWARD_FETCH_ALL (event-1, range 4-10min, only window 5-10min)
+            assertEquals("event-1", results.get(14).key().get("eventId").toString());
+            assertEquals(7L, results.get(14).value().get("count"));
+            assertSchemaIdHeaders(results.get(14), "BACKWARD_FETCH_ALL window 5-10min");
+
+            // IQv1 for store-level fetches
             ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
                 streams.store(
                     StoreQueryParameters.fromNameAndType(STORE_NAME, QueryableStoreTypes.windowStore()));
 
             assertNotNull(store, "Store should be accessible via IQv1");
 
-            // Verify window 0-5min via IQv1 (count=2)
+            // Verify window 0-5min via IQv1 (count=8)
             long window1Start = 0L;
             ValueTimestampHeaders<GenericRecord> window1Result = store.fetch(event1Key, window1Start);
             assertNotNull(window1Result, "IQv1: window 0-5min should have data");
-            assertEquals(2L, window1Result.value().get("count"), "IQv1: window 0-5min count should be 2");
+            assertEquals(8L, window1Result.value().get("count"), "IQv1: window 0-5min count should be 8");
             assertSchemaIdHeaders(window1Result.headers(), "IQv1 window 0-5min");
 
-            // Verify window 5-10min via IQv1 (count=1)
-            long window2Start = 300000L; // 5min
+            // Verify window 5-10min via IQv1 (count=7)
+            long window2Start = 300000L;
             ValueTimestampHeaders<GenericRecord> window2Result = store.fetch(event1Key, window2Start);
             assertNotNull(window2Result, "IQv1: window 5-10min should have data");
-            assertEquals(1L, window2Result.value().get("count"), "IQv1: window 5-10min count should be 1");
+            assertEquals(7L, window2Result.value().get("count"), "IQv1: window 5-10min count should be 7");
             assertSchemaIdHeaders(window2Result.headers(), "IQv1 window 5-10min");
 
         } finally {
@@ -369,11 +373,12 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         }
 
         /**
-         * Fetch all windows for this key in reverse order.
+         * Fetch windows for this key in reverse order from 4min to 10min.
+         * This narrower range should only return window 5-10min (1 record).
          */
         private void handleBackwardFetch(Record<GenericRecord, GenericRecord> record) {
             try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iterator =
-                     store.backwardFetch(record.key(), Instant.ofEpochMilli(0), Instant.ofEpochMilli(600000L))) {
+                     store.backwardFetch(record.key(), Instant.ofEpochMilli(240000L), Instant.ofEpochMilli(600000L))) {
                 while (iterator.hasNext()) {
                     KeyValue<Long, ValueTimestampHeaders<GenericRecord>> entry = iterator.next();
                     ValueTimestampHeaders<GenericRecord> value = entry.value;
@@ -404,11 +409,12 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         }
 
         /**
-         * Fetch all entries in the store in reverse order
+         * Fetch all entries in the store in reverse order from 4min to 10min.
+         * This narrower range should only return window 5-10min for event-1 (1 record).
          */
         private void handleBackwardFetchAll(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iterator =
-                     store.backwardFetchAll(Instant.ofEpochMilli(0), Instant.ofEpochMilli(600000L))) {
+                     store.backwardFetchAll(Instant.ofEpochMilli(240000L), Instant.ofEpochMilli(600000L))) {
                 while (iterator.hasNext()) {
                     KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> entry = iterator.next();
                     ValueTimestampHeaders<GenericRecord> value = entry.value;
