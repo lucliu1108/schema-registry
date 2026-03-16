@@ -55,6 +55,7 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StoreQueryParameters;
@@ -602,6 +603,35 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             // FETCH event-3 after delete
             assertEquals("event-3", results.get(idx).key().get("eventId").toString());
             assertEquals(-1L, results.get(idx).value().get("count"));
+
+            // Verify changelog topic tombstones have key schema ID header
+            String changelogTopic = "delete-integration-test-delete-store-changelog";
+
+            List<ConsumerRecord<byte[], byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "changelog-consumer", 12);
+
+            // Debug output
+            System.out.println("=== Window Changelog records from topic: " + changelogTopic + " ===");
+            System.out.println("Total records: " + changelogRecords.size());
+            for (int i = 0; i < changelogRecords.size(); i++) {
+                ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
+                System.out.println("Record " + i + ": key=" + (r.key() != null ? r.key().length + " bytes" : "null")
+                    + ", value=" + (r.value() != null ? r.value().length + " bytes" : "NULL (tombstone)")
+                    + ", headers=" + r.headers());
+            }
+            System.out.println("=== End window changelog records ===");
+
+            int tombstoneCount = 0;
+            for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+                if (record.value() == null) {
+                    tombstoneCount++;
+                    Header keySchemaIdHeader = record.headers().lastHeader(SchemaId.KEY_SCHEMA_ID_HEADER);
+                    assertNotNull(keySchemaIdHeader,
+                        "Tombstone record should have key schema ID header");
+                }
+            }
+            System.out.println("Tombstone count: " + tombstoneCount);
+            assertTrue(tombstoneCount >= 1, "Should have at least 1 tombstone record");
 
         } finally {
             closeStreams(streams);
@@ -1532,6 +1562,33 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             idx++;
         }
         assertEquals(expectedCounts, multiKeyBackwardCounts, assertionContext + " counts");
+    }
+
+    private Properties createChangelogConsumerProps(String groupId) {
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        return props;
+    }
+
+    private List<ConsumerRecord<byte[], byte[]>> consumeChangelogRecords(
+        String topic, String groupId, int expectedCount) {
+        List<ConsumerRecord<byte[], byte[]>> results = new ArrayList<>();
+        try (KafkaConsumer<byte[], byte[]> consumer =
+                 new KafkaConsumer<>(createChangelogConsumerProps(groupId))) {
+            consumer.subscribe(Collections.singletonList(topic));
+            long deadline = System.currentTimeMillis() + 30_000;
+            while (results.size() < expectedCount && System.currentTimeMillis() < deadline) {
+                ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<byte[], byte[]> record : records) {
+                    results.add(record);
+                }
+            }
+        }
+        return results;
     }
 
 }
