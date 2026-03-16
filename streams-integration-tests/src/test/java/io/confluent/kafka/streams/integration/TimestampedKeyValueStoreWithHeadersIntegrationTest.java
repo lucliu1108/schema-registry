@@ -50,11 +50,13 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
+import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StoreQueryParameters;
@@ -140,31 +142,34 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         try {
             streams = startStreamsAndAwaitRunning(builder.build(), "kv-store-integration-test");
 
-            GenericRecord helloKey = createKey("hello");
+            GenericRecord word1Key = createKey("word-1");
 
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
 
-                // Test 1: PUT - put hello:1
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(1L, "PUT"))).get();
+                // Test 1: PUT - put word-1:1
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, word1Key, createValue(1L, "PUT"))).get();
 
-                // Test 2: PUT - put hello:1 again, aggregates to hello:2
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(1L, "PUT"))).get();
+                // Test 2: PUT - put word-1:1 again, aggregates to word-1:2
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, word1Key, createValue(1L, "PUT"))).get();
 
-                // Test 3: PUT_IF_ABSENT - should not overwrite existing "hello"
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(100L, "PUT_IF_ABSENT"))).get();
+                // Test 3: PUT_IF_ABSENT - should not overwrite existing "word-1"
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, word1Key, createValue(100L, "PUT_IF_ABSENT"))).get();
 
-                // Test 4: PUT_IF_ABSENT - new key "world" should be inserted
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("world"), createValue(50L, "PUT_IF_ABSENT"))).get();
+                // Test 4: PUT_IF_ABSENT - new key "word-2" should be inserted
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("word-2"), createValue(50L, "PUT_IF_ABSENT"))).get();
 
-                // Test 5: DELETE - delete "hello"
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, helloKey, createValue(0L, "DELETE"))).get();
+                // Test 5: DELETE - delete "word-1"
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, word1Key, createValue(0L, "DELETE"))).get();
 
-                // Test 6: DELETE - delete non-existing key (should produce no output)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("non-existing"), createValue(0L, "DELETE"))).get();
+                // Test 6: DELETE - delete non-existing key
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("word-99"), createValue(0L, "DELETE"))).get();
 
-                // Test 7: PUT_ALL - batch insert 3 words (hardcoded in processor) - at end since temporarily not supported
+                // Test 7: PUT_ALL - batch insert 3 words (hardcoded in processor)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("trigger"), createValue(0L, "PUT_ALL"))).get();
+
+                // Test 8: DELETE non-existing key (should produce no output)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, createKey("nonexistent"), createValue(0L, "DELETE"))).get();
 
                 producer.flush();
             }
@@ -176,76 +181,183 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             assertEquals(8, results.size(), "Should have 8 output records");
 
             // Verify PUT 1
-            assertEquals("hello", results.get(0).key().get("word").toString());
+            assertEquals("word-1", results.get(0).key().get("word").toString());
             assertEquals(1L, results.get(0).value().get("count"));
             assertSchemaIdHeaders(results.get(0), "PUT 1");
 
             // Verify PUT 1+1
-            assertEquals("hello", results.get(1).key().get("word").toString());
+            assertEquals("word-1", results.get(1).key().get("word").toString());
             assertEquals(2L, results.get(1).value().get("count"));
             assertSchemaIdHeaders(results.get(1), "PUT 2 (aggregated)");
 
             // Verify PUT_IF_ABSENT existing
-            assertEquals("hello", results.get(2).key().get("word").toString());
+            assertEquals("word-1", results.get(2).key().get("word").toString());
             assertEquals(2L, results.get(2).value().get("count"));
             assertSchemaIdHeaders(results.get(2), "PUT_IF_ABSENT existing");
 
             // Verify PUT_IF_ABSENT new key
-            assertEquals("world", results.get(3).key().get("word").toString());
+            assertEquals("word-2", results.get(3).key().get("word").toString());
             assertEquals(50L, results.get(3).value().get("count"));
             assertSchemaIdHeaders(results.get(3), "PUT_IF_ABSENT new");
 
             // Verify DELETE
-            assertEquals("hello", results.get(4).key().get("word").toString());
+            assertEquals("word-1", results.get(4).key().get("word").toString());
             assertEquals(2L, results.get(4).value().get("count"));
             assertSchemaIdHeaders(results.get(4), "DELETE");
 
+            // Verify DELETE non-existing key (produce no result)
+
             // Verify PUT_ALL 3 words
-            assertEquals("word1", results.get(5).key().get("word").toString());
+            assertEquals("word-3", results.get(5).key().get("word").toString());
             assertEquals(25L, results.get(5).value().get("count"));
-            assertSchemaIdHeaders(results.get(5), "PUT_ALL word1");
+            assertSchemaIdHeaders(results.get(5), "PUT_ALL word-3");
 
-            assertEquals("word2", results.get(6).key().get("word").toString());
+            assertEquals("word-4", results.get(6).key().get("word").toString());
             assertEquals(50L, results.get(6).value().get("count"));
-            assertSchemaIdHeaders(results.get(6), "PUT_ALL word2");
+            assertSchemaIdHeaders(results.get(6), "PUT_ALL word-4");
 
-            assertEquals("word3", results.get(7).key().get("word").toString());
+            assertEquals("word-5", results.get(7).key().get("word").toString());
             assertEquals(75L, results.get(7).value().get("count"));
-            assertSchemaIdHeaders(results.get(7), "PUT_ALL word3");
+            assertSchemaIdHeaders(results.get(7), "PUT_ALL word-5");
 
-            // Query store via IQv1 to verify final state
+            // Verify DELETE non-existing key (should produce no output)
+
             ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
                 streams.store(
                     StoreQueryParameters.fromNameAndType(STORE_NAME, QueryableStoreTypes.keyValueStore()));
-
             assertNotNull(store, "Store should be accessible via IQv1");
 
-            // Verify DELETE: "hello" should not exist (was deleted)
-            ValueTimestampHeaders<GenericRecord> helloResult = store.get(helloKey);
-            assertTrue(helloResult == null || helloResult.value() == null,
-                "IQv1: hello should not exist after delete");
+        } finally {
+            closeStreams(streams);
+        }
+    }
 
-            // Verify PUT_IF_ABSENT: "world" should exist with count 50
-            ValueTimestampHeaders<GenericRecord> worldResult = store.get(createKey("world"));
-            assertNotNull(worldResult, "IQv1: world should exist in store");
-            assertEquals(50L, worldResult.value().get("count"), "IQv1: world count should be 50");
-            assertSchemaIdHeaders(worldResult.headers(), "IQv1 world");
+    /**
+     * IQv1 verification for TimestampedKeyValueStoreWithHeaders.
+     * Tests get, all, reverseAll, range, reverseRange, approximateNumEntries.
+     */
+    @Test
+    public void shouldVerifyIQv1Operations() throws Exception {
+        String iqv1InputTopic = "iqv1-input";
+        String iqv1OutputTopic = "iqv1-output";
+        String iqv1StoreName = "iqv1-store";
+
+        createTopics(iqv1InputTopic, iqv1OutputTopic);
+
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        builder
+            .addStateStore(
+                Stores.timestampedKeyValueStoreBuilderWithHeaders(
+                    Stores.persistentTimestampedKeyValueStoreWithHeaders(iqv1StoreName),
+                    keySerde,
+                    valueSerde))
+            .stream(iqv1InputTopic, Consumed.with(keySerde, valueSerde))
+            .process(() -> new WordCountProcessor(iqv1StoreName), iqv1StoreName)
+            .to(iqv1OutputTopic, Produced.with(keySerde, valueSerde));
+
+        KafkaStreams streams = null;
+        try {
+            streams = startStreamsAndAwaitRunning(builder.build(), "iqv1-test");
+
+            GenericRecord word1Key = createKey("word-1");
+
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+
+                // Test 1: PUT - put word-1:1
+                producer.send(new ProducerRecord<>(iqv1InputTopic, word1Key, createValue(1L, "PUT"))).get();
+
+                // Test 2: PUT - put word-1:1 again, aggregates to word-1:2
+                producer.send(new ProducerRecord<>(iqv1InputTopic, word1Key, createValue(1L, "PUT"))).get();
+
+                // Test 3: PUT_IF_ABSENT - should not overwrite existing "word-1"
+                producer.send(new ProducerRecord<>(iqv1InputTopic, word1Key, createValue(100L, "PUT_IF_ABSENT"))).get();
+
+                // Test 4: PUT_IF_ABSENT - new key "word-2" should be inserted
+                producer.send(new ProducerRecord<>(iqv1InputTopic, createKey("word-2"), createValue(50L, "PUT_IF_ABSENT"))).get();
+
+                // Test 5: DELETE - delete "word-1"
+                producer.send(new ProducerRecord<>(iqv1InputTopic, word1Key, createValue(0L, "DELETE"))).get();
+
+                // Test 6: DELETE - delete non-existing key (should produce no output)
+                producer.send(new ProducerRecord<>(iqv1InputTopic, createKey("word-99"), createValue(0L, "DELETE"))).get();
+
+                // Test 7: PUT_ALL - batch insert 3 words (hardcoded in processor)
+                producer.send(new ProducerRecord<>(iqv1InputTopic, createKey("trigger"), createValue(0L, "PUT_ALL"))).get();
+
+                producer.flush();
+            }
+
+            // Expect 8 records: PUT(1) + PUT(2) + PUT_IF_ABSENT(existing) + PUT_IF_ABSENT(new) + DELETE + PUT_ALL(3)
+            consumeRecords(iqv1OutputTopic, "iqv1-consumer", 8);
+
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
+                streams.store(
+                    StoreQueryParameters.fromNameAndType(iqv1StoreName, QueryableStoreTypes.keyValueStore()));
+            assertNotNull(store, "Store should be accessible via IQv1");
+
+            // GET - point lookups
+            // Verify DELETE: "word-1" should not exist (was deleted)
+            ValueTimestampHeaders<GenericRecord> word1Result = store.get(word1Key);
+            assertTrue(word1Result == null || word1Result.value() == null,
+                "IQv1: word-1 should not exist after delete");
+
+            // Verify PUT_IF_ABSENT: "word-2" should exist with count 50
+            ValueTimestampHeaders<GenericRecord> word2Result = store.get(createKey("word-2"));
+            assertNotNull(word2Result, "IQv1: word-2 should exist in store");
+            assertEquals(50L, word2Result.value().get("count"), "IQv1: word-2 count should be 50");
+            assertSchemaIdHeaders(word2Result.headers(), "IQv1 get word-2");
 
             // Verify PUT_ALL: all 3 word entries should exist
-            ValueTimestampHeaders<GenericRecord> batch1Result = store.get(createKey("word1"));
-            assertNotNull(batch1Result, "IQv1: word1 should exist in store");
-            assertEquals(25L, batch1Result.value().get("count"), "IQv1: word1 count should be 25");
-            assertSchemaIdHeaders(batch1Result.headers(), "IQv1 word1");
+            ValueTimestampHeaders<GenericRecord> word3Result = store.get(createKey("word-3"));
+            assertNotNull(word3Result, "IQv1: word-3 should exist in store");
+            assertEquals(25L, word3Result.value().get("count"), "IQv1: word-3 count should be 25");
+            assertSchemaIdHeaders(word3Result.headers(), "IQv1 get word-3");
 
-            ValueTimestampHeaders<GenericRecord> batch2Result = store.get(createKey("word2"));
-            assertNotNull(batch2Result, "IQv1: word2 should exist in store");
-            assertEquals(50L, batch2Result.value().get("count"), "IQv1: word2 count should be 50");
-            assertSchemaIdHeaders(batch2Result.headers(), "IQv1 word2");
+            ValueTimestampHeaders<GenericRecord> word4Result = store.get(createKey("word-4"));
+            assertNotNull(word4Result, "IQv1: word-4 should exist in store");
+            assertEquals(50L, word4Result.value().get("count"), "IQv1: word-4 count should be 50");
+            assertSchemaIdHeaders(word4Result.headers(), "IQv1 get word-4");
 
-            ValueTimestampHeaders<GenericRecord> batch3Result = store.get(createKey("word3"));
-            assertNotNull(batch3Result, "IQv1: word3 should exist in store");
-            assertEquals(75L, batch3Result.value().get("count"), "IQv1: word3 count should be 75");
-            assertSchemaIdHeaders(batch3Result.headers(), "IQv1 word3");
+            ValueTimestampHeaders<GenericRecord> word5Result = store.get(createKey("word-5"));
+            assertNotNull(word5Result, "IQv1: word-5 should exist in store");
+            assertEquals(75L, word5Result.value().get("count"), "IQv1: word-5 count should be 75");
+            assertSchemaIdHeaders(word5Result.headers(), "IQv1 get word-5");
+
+            // GET non-existent key
+            assertNull(store.get(createKey("word-99")), "IQv1: word-99 should return null");
+
+            // ALL
+            try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter = store.all()) {
+                verifyKeyValueList(iter, Arrays.asList("word-2", "word-3", "word-4", "word-5"),
+                    Arrays.asList(50L, 25L, 50L, 75L), "all");
+            }
+
+            // REVERSE ALL
+            try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter = store.reverseAll()) {
+                verifyKeyValueList(iter, Arrays.asList("word-5", "word-4", "word-3", "word-2"),
+                    Arrays.asList(75L, 50L, 25L, 50L), "reverseAll");
+            }
+
+            // RANGE - from word-2 to word-4 (inclusive)
+            try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.range(createKey("word-2"), createKey("word-4"))) {
+                verifyKeyValueList(iter, Arrays.asList("word-2", "word-3", "word-4"),
+                    Arrays.asList(50L, 25L, 50L), "range");
+            }
+
+            // REVERSE RANGE - from word-2 to word-4 in reverse
+            try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.reverseRange(createKey("word-2"), createKey("word-4"))) {
+                verifyKeyValueList(iter, Arrays.asList("word-4", "word-3", "word-2"),
+                    Arrays.asList(50L, 25L, 50L), "reverseRange");
+            }
+
+            // APPROXIMATE NUM ENTRIES
+            assertTrue(store.approximateNumEntries() >= 4, "approximateNumEntries should be at least 4");
 
         } finally {
             closeStreams(streams);
@@ -256,7 +368,6 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
      * Test ReadOnlyKeyValueStore operations (all, reverseAll, range, reverseRange, prefixScan, approximateNumEntries)
      */
     @Test
-    @Disabled
     public void shouldTestReadOnlyAndIteratorOperationsWithHeaders() throws Exception {
         String inputTopic = "iterator-input";
         String outputTopic = "iterator-output";
@@ -275,7 +386,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                     keySerde,
                     valueSerde))
             .stream(inputTopic, Consumed.with(keySerde, valueSerde))
-            .process(() -> new IteratorTestProcessor(storeName), storeName)
+            .process(() -> new IteratorTestProcessor(storeName, keySerde.serializer()), storeName)
             .to(outputTopic, Produced.with(keySerde, valueSerde));
 
         KafkaStreams streams = null;
@@ -334,7 +445,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
                 consumeRecords(outputTopic, "iterator-test-consumer", 26);
 
-            assertEquals(26, results.size(), "Should have 26 output records");
+            assertEquals(28, results.size(), "Should have 26 output records");
 
             int idx = 0;
 
@@ -360,13 +471,17 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                 idx++;
             }
 
-            // Verify RANGE results (word-2 to word-4, exclusive end = word-2, word-3)
+            // Verify RANGE results (word-2 to word-4, inclusive = word-2, word-3, word-4)
             assertEquals("word-2", results.get(idx).key().get("word").toString());
             assertSchemaIdHeaders(results.get(idx++), "RANGE word-2");
             assertEquals("word-3", results.get(idx).key().get("word").toString());
             assertSchemaIdHeaders(results.get(idx++), "RANGE word-3");
+            assertEquals("word-4", results.get(idx).key().get("word").toString());
+            assertSchemaIdHeaders(results.get(idx++), "RANGE word-4");
 
-            // Verify REVERSE_RANGE results (word-3, word-2)
+            // Verify REVERSE_RANGE results (word-4, word-3, word-2)
+            assertEquals("word-4", results.get(idx).key().get("word").toString());
+            assertSchemaIdHeaders(results.get(idx++), "REVERSE_RANGE word-4");
             assertEquals("word-3", results.get(idx).key().get("word").toString());
             assertSchemaIdHeaders(results.get(idx++), "REVERSE_RANGE word-3");
             assertEquals("word-2", results.get(idx).key().get("word").toString());
@@ -414,8 +529,8 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                     rangeKeys.add(kv.key.get("word").toString());
                     assertSchemaIdHeaders(kv.value.headers(), "IQv1 range() " + kv.key.get("word"));
                 }
-                assertEquals(Arrays.asList("word-2", "word-3"), rangeKeys,
-                    "IQv1 range(word-2, word-4) should return word-2, word-3");
+                assertEquals(Arrays.asList("word-2", "word-3", "word-4"), rangeKeys,
+                    "IQv1 range(word-2, word-4) should return word-2, word-3, word-4");
             }
 
             // Test IQv1 approximateNumEntries()
@@ -476,11 +591,14 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         }
     }
 
+    /**
+     * Test delete by putting null value, putIfAbsent with null, and get on non-existent/deleted entries.
+     */
     @Test
-    public void shouldReturnNullForNonExistentKey() throws Exception {
-        String inputTopic = "nonexistent-input";
-        String outputTopic = "nonexistent-output";
-        String storeName = "nonexistent-store";
+    public void shouldDeleteWithNullValueAndGetNonExistent() throws Exception {
+        String inputTopic = "delete-input";
+        String outputTopic = "delete-output";
+        String storeName = "delete-store";
 
         createTopics(inputTopic, outputTopic);
 
@@ -495,27 +613,162 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                     keySerde,
                     valueSerde))
             .stream(inputTopic, Consumed.with(keySerde, valueSerde))
-            .process(() -> new GetNonExistentProcessor(storeName), storeName)
+            .process(() -> new DeleteTestProcessor(storeName), storeName)
             .to(outputTopic, Produced.with(keySerde, valueSerde));
 
         KafkaStreams streams = null;
         try {
-            streams = startStreamsAndAwaitRunning(builder.build(), "nonexistent-integration-test");
+            streams = startStreamsAndAwaitRunning(builder.build(), "delete-integration-test");
 
+            GenericRecord word1Key = createKey("word-1");
+            GenericRecord word2Key = createKey("word-2");
+            GenericRecord word3Key = createKey("word-3");
+
+            // Use producer WITHOUT header-based schema ID to test changelog header generation
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
 
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("nonexistent"), createValue(0L, "GET_NONEXISTENT"))).get();
+                // PUT word-1:10, word-2:20, word-3:30
+                producer.send(new ProducerRecord<>(inputTopic, word1Key, createValue(10L, "PUT"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, word2Key, createValue(20L, "PUT"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, word3Key, createValue(30L, "PUT"))).get();
+
+                // GET word-1 (should exist)
+                producer.send(new ProducerRecord<>(inputTopic, word1Key, createValue(0L, "GET"))).get();
+
+                // PUT_NULL word-1 (delete via put null)
+                producer.send(new ProducerRecord<>(inputTopic, word1Key, createValue(0L, "PUT_NULL"))).get();
+
+                // GET word-1 after delete (should be null)
+                producer.send(new ProducerRecord<>(inputTopic, word1Key, createValue(0L, "GET"))).get();
+
+                // PUT_NULL word-99 (delete non-existent)
+                producer.send(new ProducerRecord<>(inputTopic, createKey("word-99"), createValue(0L, "PUT_NULL"))).get();
+
+                // GET word-99 (should be null)
+                producer.send(new ProducerRecord<>(inputTopic, createKey("word-99"), createValue(0L, "GET"))).get();
+
+                // PUT_IF_ABSENT_NULL on existing word-2 (should not delete, returns existing value)
+                producer.send(new ProducerRecord<>(inputTopic, word2Key, createValue(0L, "PUT_IF_ABSENT_NULL"))).get();
+
+                // GET word-2 (should still be 20)
+                producer.send(new ProducerRecord<>(inputTopic, word2Key, createValue(0L, "GET"))).get();
+
+                // PUT_IF_ABSENT_NULL on non-existent word-98 (inserts null)
+                producer.send(new ProducerRecord<>(inputTopic, createKey("word-98"), createValue(0L, "PUT_IF_ABSENT_NULL"))).get();
+
+                // GET word-98 (should be null since null was inserted)
+                producer.send(new ProducerRecord<>(inputTopic, createKey("word-98"), createValue(0L, "GET"))).get();
+
+                // PUT word-3:100 (overwrite)
+                producer.send(new ProducerRecord<>(inputTopic, word3Key, createValue(100L, "PUT"))).get();
+
+                // GET word-3 (should be 100)
+                producer.send(new ProducerRecord<>(inputTopic, word3Key, createValue(0L, "GET"))).get();
+
+                // PUT_NULL word-3 (delete)
+                producer.send(new ProducerRecord<>(inputTopic, word3Key, createValue(0L, "PUT_NULL"))).get();
+
+                // GET word-3 after delete (should be null)
+                producer.send(new ProducerRecord<>(inputTopic, word3Key, createValue(0L, "GET"))).get();
+
                 producer.flush();
             }
 
+            // PUT(3) + GET(1) + GET(1) + GET(1) + PUT_IF_ABSENT_NULL(1) + GET(1) + GET(1) + PUT(1) + GET(1) + GET(1) = 12
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(outputTopic, "nonexistent-consumer", 1);
+                consumeRecords(outputTopic, "delete-test-consumer", 12);
 
-            assertEquals(1, results.size(), "Should have 1 output record");
-            assertEquals(1L, results.get(0).value().get("count"),
-                "get() on non-existent key should return null");
+            assertEquals(12, results.size());
+
+            int idx = 0;
+
+            // Verify 3 PUTs
+            assertEquals("word-1", results.get(idx).key().get("word").toString());
+            assertEquals(10L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "PUT word-1");
+
+            assertEquals("word-2", results.get(idx).key().get("word").toString());
+            assertEquals(20L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "PUT word-2");
+
+            assertEquals("word-3", results.get(idx).key().get("word").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "PUT word-3");
+
+            // GET word-1 before delete
+            assertEquals("word-1", results.get(idx).key().get("word").toString());
+            assertEquals(10L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "GET word-1 before delete");
+
+            // GET word-1 after delete (count=-1 indicates null)
+            assertEquals("word-1", results.get(idx).key().get("word").toString());
+            assertEquals(-1L, results.get(idx).value().get("count"));
+            idx++;
+
+            // GET word-99 (non-existent, count=-1 indicates null)
+            assertEquals("word-99", results.get(idx).key().get("word").toString());
+            assertEquals(-1L, results.get(idx).value().get("count"));
+            idx++;
+
+            // PUT_IF_ABSENT_NULL on existing word-2 (returns existing value 20)
+            assertEquals("word-2", results.get(idx).key().get("word").toString());
+            assertEquals(20L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "PUT_IF_ABSENT_NULL existing");
+
+            // GET word-2 (still 20)
+            assertEquals("word-2", results.get(idx).key().get("word").toString());
+            assertEquals(20L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "GET word-2 after PUT_IF_ABSENT_NULL");
+
+            // GET word-98 (null was inserted, count=-1)
+            assertEquals("word-98", results.get(idx).key().get("word").toString());
+            assertEquals(-1L, results.get(idx).value().get("count"));
+            idx++;
+
+            // PUT word-3:100
+            assertEquals("word-3", results.get(idx).key().get("word").toString());
+            assertEquals(100L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "PUT word-3 overwrite");
+
+            // GET word-3 after overwrite
+            assertEquals("word-3", results.get(idx).key().get("word").toString());
+            assertEquals(100L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "GET word-3 after overwrite");
+
+            // GET word-3 after delete (count=-1 indicates null)
+            assertEquals("word-3", results.get(idx).key().get("word").toString());
+            assertEquals(-1L, results.get(idx).value().get("count"));
+
+            // Verify changelog topic tombstones have key schema ID header
+            String changelogTopic = "delete-integration-test-delete-store-changelog";
+
+            List<ConsumerRecord<byte[], byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "changelog-consumer", 8);
+
+            // Debug: print what we got from changelog
+            System.out.println("=== Changelog records from topic: " + changelogTopic + " ===");
+            System.out.println("Total records: " + changelogRecords.size());
+            for (int i = 0; i < changelogRecords.size(); i++) {
+                ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
+                System.out.println("Record " + i + ": key=" + (r.key() != null ? r.key().length + " bytes" : "null")
+                    + ", value=" + (r.value() != null ? r.value().length + " bytes" : "NULL (tombstone)")
+                    + ", headers=" + r.headers());
+            }
+            System.out.println("=== End changelog records ===");
+
+            int tombstoneCount = 0;
+            for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+                if (record.value() == null) {
+                    // Verify key schema ID header is present in tombstone record
+                    tombstoneCount++;
+                    Header keySchemaIdHeader = record.headers().lastHeader(SchemaId.KEY_SCHEMA_ID_HEADER);
+                    assertSchemaIdHeaders(record.headers(), "Changelog record with null value (tombstone)");
+                }
+            }
+            System.out.println("Tombstone count: " + tombstoneCount);
+            assertTrue(tombstoneCount >= 3,
+                "Should have at least 3 tombstone records (PUT_NULL word-1, PUT_NULL word-99, PUT_NULL word-3)");
 
         } finally {
             closeStreams(streams);
@@ -529,11 +782,13 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         implements Processor<GenericRecord, GenericRecord, GenericRecord, GenericRecord> {
 
         private final String storeName;
+        private final Serializer<GenericRecord> keySerializer;
         private ProcessorContext<GenericRecord, GenericRecord> context;
         private TimestampedKeyValueStoreWithHeaders<GenericRecord, GenericRecord> store;
 
-        public IteratorTestProcessor(String storeName) {
+        public IteratorTestProcessor(String storeName, Serializer<GenericRecord> keySerializer) {
             this.storeName = storeName;
+            this.keySerializer = keySerializer;
         }
 
         @Override
@@ -637,10 +892,13 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         private void handleTestPrefixScan(Record<GenericRecord, GenericRecord> record) {
             GenericRecord prefixKey = createKeyWithSchema(record.key().getSchema(), "word-");
 
-            Serializer<GenericRecord> prefixSerializer = (topic, data) -> {
-                if (data == null) return null;
-                return data.get("word").toString().getBytes();
-            };
+            // Serialize an actual stored key to get the byte format
+            GenericRecord sampleKey = createKeyWithSchema(record.key().getSchema(), "word-1");
+            byte[] sampleBytes = keySerializer.serialize("iterator-input", new RecordHeaders(), sampleKey);
+            // Common prefix is all bytes except the last digit
+            final byte[] prefixBytes = Arrays.copyOf(sampleBytes, sampleBytes.length - 1);
+
+            Serializer<GenericRecord> prefixSerializer = (topic, data) -> prefixBytes;
 
             try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter =
                      store.prefixScan(prefixKey, prefixSerializer)) {
@@ -739,16 +997,16 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
     }
 
     /**
-     * Processor for testing get on non-existent key.
+     * Processor for testing delete operations (put null, putIfAbsent null) and get.
      */
-    private static class GetNonExistentProcessor
+    private static class DeleteTestProcessor
         implements Processor<GenericRecord, GenericRecord, GenericRecord, GenericRecord> {
 
         private final String storeName;
         private ProcessorContext<GenericRecord, GenericRecord> context;
         private TimestampedKeyValueStoreWithHeaders<GenericRecord, GenericRecord> store;
 
-        public GetNonExistentProcessor(String storeName) {
+        public DeleteTestProcessor(String storeName) {
             this.storeName = storeName;
         }
 
@@ -760,15 +1018,66 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
 
         @Override
         public void process(Record<GenericRecord, GenericRecord> record) {
-            if ("GET_NONEXISTENT".equals(record.value().get("operation").toString())) {
-                ValueTimestampHeaders<GenericRecord> result = store.get(record.key());
-                long checkResult = (result == null) ? 1L : 0L;
+            String operation = record.value().get("operation").toString();
 
-                GenericRecord resultValue = new GenericData.Record(record.value().getSchema());
-                resultValue.put("count", checkResult);
-                resultValue.put("operation", "RESULT");
+            switch (operation) {
+                case "PUT":
+                    handlePut(record);
+                    break;
+                case "PUT_NULL":
+                    handlePutNull(record);
+                    break;
+                case "PUT_IF_ABSENT_NULL":
+                    handlePutIfAbsentNull(record);
+                    break;
+                case "GET":
+                    handleGet(record);
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unknown operation: " + operation);
+            }
+        }
 
-                context.forward(new Record<>(record.key(), resultValue, record.timestamp(), record.headers()));
+        private void handlePut(Record<GenericRecord, GenericRecord> record) {
+            ValueTimestampHeaders<GenericRecord> toStore =
+                ValueTimestampHeaders.make(record.value(), record.timestamp(), record.headers());
+            store.put(record.key(), toStore);
+
+            ValueTimestampHeaders<GenericRecord> stored = store.get(record.key());
+            context.forward(new Record<>(
+                record.key(), stored.value(), stored.timestamp(), stored.headers()));
+        }
+
+        private void handlePutNull(Record<GenericRecord, GenericRecord> record) {
+            store.put(record.key(), null);
+        }
+
+        private void handlePutIfAbsentNull(Record<GenericRecord, GenericRecord> record) {
+            ValueTimestampHeaders<GenericRecord> existingValue = store.putIfAbsent(record.key(), null);
+
+            if (existingValue != null) {
+                // Key existed, forward existing value
+                context.forward(new Record<>(
+                    record.key(), existingValue.value(), existingValue.timestamp(), existingValue.headers()));
+            }
+            // If key didn't exist, null was inserted, no output
+        }
+
+        private void handleGet(Record<GenericRecord, GenericRecord> record) {
+            ValueTimestampHeaders<GenericRecord> result = store.get(record.key());
+
+            GenericRecord resultValue = new GenericData.Record(record.value().getSchema());
+            if (result != null && result.value() != null) {
+                resultValue.put("count", result.value().get("count"));
+                resultValue.put("operation", "GET_RESULT");
+                context.forward(new Record<>(
+                    record.key(), resultValue, result.timestamp(), result.headers()));
+            } else {
+                // Return -1 to indicate null
+                resultValue.put("count", -1L);
+                resultValue.put("operation", "GET_RESULT_NULL");
+                context.forward(new Record<>(
+                    record.key(), resultValue, record.timestamp(), record.headers()));
             }
         }
     }
@@ -864,8 +1173,8 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             Schema keySchema = record.key().getSchema();
             Schema valueSchema = record.value().getSchema();
 
-            // Hardcoded batch entries: batch1:25, batch2:50, batch3:75
-            String[] words = {"word1", "word2", "word3"};
+            // Hardcoded batch entries: word-3:25, word-4:50, word-5:75
+            String[] words = {"word-3", "word-4", "word-5"};
             long[] counts = {25L, 50L, 75L};
 
             List<KeyValue<GenericRecord, ValueTimestampHeaders<GenericRecord>>> entries = new ArrayList<>();
@@ -947,6 +1256,20 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         return props;
     }
 
+    /**
+     * Producer props WITHOUT header-based schema ID - uses embedded wire format.
+     * Use this to test changelog header generation (not propagation from input).
+     */
+    private Properties createProducerPropsNoHeaders() {
+        Properties props = new Properties();
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
+        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
+        // No HeaderSchemaIdSerializer - schema ID embedded in bytes only
+        return props;
+    }
+
     private Properties createConsumerProps(String groupId) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
@@ -996,6 +1319,33 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         return results;
     }
 
+    private Properties createChangelogConsumerProps(String groupId) {
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        return props;
+    }
+
+    private List<ConsumerRecord<byte[], byte[]>> consumeChangelogRecords(
+        String topic, String groupId, int expectedCount) {
+        List<ConsumerRecord<byte[], byte[]>> results = new ArrayList<>();
+        try (KafkaConsumer<byte[], byte[]> consumer =
+                 new KafkaConsumer<>(createChangelogConsumerProps(groupId))) {
+            consumer.subscribe(Collections.singletonList(topic));
+            long deadline = System.currentTimeMillis() + 30_000;
+            while (results.size() < expectedCount && System.currentTimeMillis() < deadline) {
+                ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<byte[], byte[]> record : records) {
+                    results.add(record);
+                }
+            }
+        }
+        return results;
+    }
+
     private void assertSchemaIdHeaders(ConsumerRecord<GenericRecord, GenericRecord> record, String context) {
         assertSchemaIdHeaders(record.headers(), context);
     }
@@ -1025,5 +1375,25 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         value.put("count", count);
         value.put("operation", operation);
         return value;
+    }
+
+    private void verifyKeyValueList(
+            KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter,
+            List<String> expectedKeys,
+            List<Long> expectedCounts,
+            String assertionContext) {
+        List<String> keys = new ArrayList<>();
+        List<Long> counts = new ArrayList<>();
+        int idx = 0;
+        while (iter.hasNext()) {
+            KeyValue<GenericRecord, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+            keys.add(kv.key.get("word").toString());
+            counts.add((Long) kv.value.value().get("count"));
+            assertSchemaIdHeaders(kv.value.headers(), assertionContext + " entry " + idx);
+            idx++;
+        }
+        assertEquals(expectedKeys.size(), idx, assertionContext + " number of records");
+        assertEquals(expectedKeys, keys, assertionContext + " keys");
+        assertEquals(expectedCounts, counts, assertionContext + " counts");
     }
 }

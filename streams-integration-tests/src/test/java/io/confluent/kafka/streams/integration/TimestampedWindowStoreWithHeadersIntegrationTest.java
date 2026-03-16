@@ -285,7 +285,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             assertEquals(30L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL event-1:30");
 
-            // Basic IQv1 check - comprehensive tests in shouldVerifyIQv1Operations()
             ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
                 streams.store(
                     StoreQueryParameters.fromNameAndType(STORE_NAME, QueryableStoreTypes.windowStore()));
@@ -298,7 +297,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
 
     /**
      * IQv1 verification for TimestampedWindowStoreWithHeaders.
-     * Tests point fetch, range fetch, fetchAll, all, backwardFetch, backwardAll, backwardFetchAll.
+     * fetch, range fetch, fetchAll, all, backwardFetch, backwardAll, backwardFetchAll.
      */
     @Test
     public void shouldVerifyIQv1Operations() throws Exception {
