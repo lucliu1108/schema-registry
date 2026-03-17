@@ -438,16 +438,15 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             // PUT: 5
             // ALL: 5
             // REVERSE_ALL: 5
-            // RANGE (word-2 to word-4): 2 (word-2, word-3)
-            // REVERSE_RANGE: 2 (word-3, word-2)
+            // RANGE (word-2 to word-4): 3 (word-2, word-3, word-4)
+            // REVERSE_RANGE: 3 (word-4, word-3, word-2)
             // PREFIX_SCAN: 5
             // APPROXIMATE_NUM_ENTRIES: 1
             // ITERATOR_METHODS: 1
-            // Total: 26
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(outputTopic, "iterator-test-consumer", 26);
+                consumeRecords(outputTopic, "iterator-test-consumer", 28);
 
-            assertEquals(28, results.size(), "Should have 26 output records");
+            assertEquals(28, results.size(), "Should have 28 output records");
 
             int idx = 0;
 

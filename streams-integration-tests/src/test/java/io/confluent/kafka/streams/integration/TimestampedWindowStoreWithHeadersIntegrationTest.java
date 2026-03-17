@@ -222,7 +222,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             assertEquals(70L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "PUT event-2 window 10-15min");
 
-            // Verify FETCH at t=8min for event-3 - should return event-1 from window 5-10min (count=30)
+            // Verify FETCH at t=8min for event-3 - should return event-3 from window 5-10min (count=30)
             assertEquals("event-3", results.get(idx).key().get("eventId").toString());
             assertEquals(50L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "FETCH t=5min");
