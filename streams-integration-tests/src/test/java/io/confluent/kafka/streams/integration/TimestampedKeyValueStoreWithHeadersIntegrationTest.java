@@ -302,7 +302,6 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                     StoreQueryParameters.fromNameAndType(iqv1StoreName, new TimestampedKeyValueStoreWithHeadersType<>()));
             assertNotNull(store, "Store should be accessible via IQv1");
 
-            // GET - point lookups
             // Verify DELETE: "word-1" should not exist (was deleted)
             ValueTimestampHeaders<GenericRecord> word1Result = store.get(word1Key);
             assertTrue(word1Result == null || word1Result.value() == null,
@@ -345,7 +344,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                     Arrays.asList(75L, 50L, 25L, 50L), "reverseAll");
             }
 
-            // RANGE - from word-2 to word-4 (inclusive)
+            // RANGE - from word-2 to word-4
             try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter =
                      store.range(createKey("word-2"), createKey("word-4"))) {
                 verifyKeyValueList(iter, Arrays.asList("word-2", "word-3", "word-4"),
@@ -460,21 +459,21 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                 idx++;
             }
 
-            // Verify ALL results (5 entries, sorted order)
+            // Verify ALL results
             for (int i = 1; i <= 5; i++) {
                 assertEquals("word-" + i, results.get(idx).key().get("word").toString());
                 assertSchemaIdHeaders(results.get(idx), "ALL word-" + i);
                 idx++;
             }
 
-            // Verify REVERSE_ALL results (5 entries, reverse order)
+            // Verify REVERSE_ALL results
             for (int i = 5; i >= 1; i--) {
                 assertEquals("word-" + i, results.get(idx).key().get("word").toString());
                 assertSchemaIdHeaders(results.get(idx), "REVERSE_ALL word-" + i);
                 idx++;
             }
 
-            // Verify RANGE results (word-2 to word-4, inclusive = word-2, word-3, word-4)
+            // Verify RANGE results
             assertEquals("word-2", results.get(idx).key().get("word").toString());
             assertSchemaIdHeaders(results.get(idx++), "RANGE word-2");
             assertEquals("word-3", results.get(idx).key().get("word").toString());
@@ -482,7 +481,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             assertEquals("word-4", results.get(idx).key().get("word").toString());
             assertSchemaIdHeaders(results.get(idx++), "RANGE word-4");
 
-            // Verify REVERSE_RANGE results (word-4, word-3, word-2)
+            // Verify REVERSE_RANGE results
             assertEquals("word-4", results.get(idx).key().get("word").toString());
             assertSchemaIdHeaders(results.get(idx++), "REVERSE_RANGE word-4");
             assertEquals("word-3", results.get(idx).key().get("word").toString());
@@ -490,7 +489,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             assertEquals("word-2", results.get(idx).key().get("word").toString());
             assertSchemaIdHeaders(results.get(idx++), "REVERSE_RANGE word-2");
 
-            // Verify PREFIX_SCAN results (5 entries with prefix "word-")
+            // Verify PREFIX_SCAN results
             for (int i = 1; i <= 5; i++) {
                 assertEquals("word-" + i, results.get(idx).key().get("word").toString());
                 assertSchemaIdHeaders(results.get(idx), "PREFIX_SCAN word-" + i);
@@ -723,22 +722,22 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             assertEquals(10L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "GET word-1 before delete");
 
-            // GET word-1 after delete (count=-1 indicates null)
+            // GET word-1 after delete (count=-1, null)
             assertEquals("word-1", results.get(idx).key().get("word").toString());
             assertEquals(-1L, results.get(idx).value().get("count"));
             idx++;
 
-            // GET word-99 (non-existent, count=-1 indicates null)
+            // GET word-99 (non-existent, count=-1, null)
             assertEquals("word-99", results.get(idx).key().get("word").toString());
             assertEquals(-1L, results.get(idx).value().get("count"));
             idx++;
 
-            // PUT_IF_ABSENT_NULL on existing word-2 (returns existing value 20)
+            // PUT_IF_ABSENT_NULL on existing word-2
             assertEquals("word-2", results.get(idx).key().get("word").toString());
             assertEquals(20L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "PUT_IF_ABSENT_NULL existing");
 
-            // GET word-2 (still 20)
+            // GET word-2
             assertEquals("word-2", results.get(idx).key().get("word").toString());
             assertEquals(20L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "GET word-2 after PUT_IF_ABSENT_NULL");
@@ -758,7 +757,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             assertEquals(100L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "GET word-3 after overwrite");
 
-            // GET word-3 after delete (count=-1 indicates null)
+            // GET word-3 after delete (count=-1, null)
             assertEquals("word-3", results.get(idx).key().get("word").toString());
             assertEquals(-1L, results.get(idx).value().get("count"));
             idx++;
@@ -773,12 +772,12 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             assertEquals(40L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "DELETE word-4");
 
-            // GET word-4 after delete (count=-1 indicates null)
+            // GET word-4 after delete (count=-1, null)
             assertEquals("word-4", results.get(idx).key().get("word").toString());
             assertEquals(-1L, results.get(idx).value().get("count"));
             idx++;
 
-            // GET word-97 (non-existent, count=-1 indicates null)
+            // GET word-97 (non-existent, count=-1, null)
             assertEquals("word-97", results.get(idx).key().get("word").toString());
             assertEquals(-1L, results.get(idx).value().get("count"));
 
@@ -787,17 +786,6 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
 
             List<ConsumerRecord<byte[], byte[]>> changelogRecords =
                 consumeChangelogRecords(changelogTopic, "changelog-consumer", 10);
-
-            // Debug: print what we got from changelog
-            System.out.println("=== Changelog records from topic: " + changelogTopic + " ===");
-            System.out.println("Total records: " + changelogRecords.size());
-            for (int i = 0; i < changelogRecords.size(); i++) {
-                ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
-                System.out.println("Record " + i + ": key=" + (r.key() != null ? r.key().length + " bytes" : "null")
-                    + ", value=" + (r.value() != null ? r.value().length + " bytes" : "NULL (tombstone)")
-                    + ", headers=" + r.headers());
-            }
-            System.out.println("=== End changelog records ===");
 
             int tombstoneCount = 0;
             for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
@@ -1311,20 +1299,6 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             HeaderSchemaIdSerializer.class.getName());
         props.put(AbstractKafkaSchemaSerDeConfig.VALUE_SCHEMA_ID_SERIALIZER,
             HeaderSchemaIdSerializer.class.getName());
-        return props;
-    }
-
-    /**
-     * Producer props WITHOUT header-based schema ID - uses embedded wire format.
-     * Use this to test changelog header generation (not propagation from input).
-     */
-    private Properties createProducerPropsNoHeaders() {
-        Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
-        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        // No HeaderSchemaIdSerializer - schema ID embedded in bytes only
         return props;
     }
 

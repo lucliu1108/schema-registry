@@ -621,17 +621,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             List<ConsumerRecord<byte[], byte[]>> changelogRecords =
                 consumeChangelogRecords(changelogTopic, "changelog-consumer", 12);
 
-            // Debug output
-            System.out.println("=== Window Changelog records from topic: " + changelogTopic + " ===");
-            System.out.println("Total records: " + changelogRecords.size());
-            for (int i = 0; i < changelogRecords.size(); i++) {
-                ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
-                System.out.println("Record " + i + ": key=" + (r.key() != null ? r.key().length + " bytes" : "null")
-                    + ", value=" + (r.value() != null ? r.value().length + " bytes" : "NULL (tombstone)")
-                    + ", headers=" + r.headers());
-            }
-            System.out.println("=== End window changelog records ===");
-
             int tombstoneCount = 0;
             for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
                 if (record.value() == null) {

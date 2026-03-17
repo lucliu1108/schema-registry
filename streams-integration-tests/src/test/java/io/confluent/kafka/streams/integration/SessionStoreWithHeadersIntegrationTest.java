@@ -89,7 +89,6 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
     private static final String INPUT_TOPIC = "session-input";
     private static final String OUTPUT_TOPIC = "session-output";
     private static final String STORE_NAME = "session-store";
-    private static final Duration INACTIVITY_GAP = Duration.ofMinutes(5);
 
     private static final String KEY_SCHEMA_JSON =
         "{"
@@ -130,7 +129,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         builder
             .addStateStore(
                 Stores.sessionStoreBuilderWithHeaders(
-                    Stores.persistentSessionStoreWithHeaders(STORE_NAME, Duration.ofMinutes(30)),
+                    Stores.inMemorySessionStore(STORE_NAME, Duration.ofMinutes(30)),
                     keySerde,
                     valueSerde))
             .stream(INPUT_TOPIC, Consumed.with(keySerde, valueSerde))
@@ -171,117 +170,105 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime + 300000,
                     createKey("user7"), createValue(700L, "PUT"))).get();
 
-                // Fetch session
-                // Fetch specific session for user1 (first session)
+                // fetchSession(key, startTime, endTime) - Fetch single specific session
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user1"), createValue(0L, "FETCH_SESSION"))).get();
-                // Fetch specific session for user4
+                    createKey("user1"), createValue(0L, "FETCH_SESSION_SINGLE"))).get();
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user4"), createValue(0L, "FETCH_SESSION"))).get();
-                // Non-existing key -> no output
+                    createKey("user4"), createValue(0L, "FETCH_SESSION_SINGLE"))).get();
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user99"), createValue(0L, "FETCH_SESSION_NONEXISTENT"))).get();
+                    createKey("user99"), createValue(0L, "FETCH_SESSION_SINGLE_NONEXISTENT"))).get();
 
-                // FIND_SESSIONS user1: sessions at baseTime(101), baseTime+500000(102), baseTime+1000000(103)
-                // Range [0, baseTime+100000] -> only first session (101)
+                // findSessions(key, earliestSessionEndTime, latestSessionStartTime) - Find sessions for single key with time filter
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user1"), createValue(0L, "FIND_SESSIONS_FIRST_TWO"))).get();
-                // Range [0, baseTime+600000] -> first two sessions (101, 102)
+                    createKey("user1"), createValue(0L, "FIND_SESSIONS_SINGLE_KEY_FIRST_TWO"))).get();
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user1"), createValue(0L, "FIND_SESSIONS_FIRST_THREE"))).get();
-                // Range [0, Long.MAX] -> all three sessions (101, 102, 103)
+                    createKey("user1"), createValue(0L, "FIND_SESSIONS_SINGLE_KEY_FIRST_THREE"))).get();
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user1"), createValue(0L, "FIND_SESSIONS_ALL"))).get();
-                // Range [baseTime+2000000, Long.MAX] -> no sessions
+                    createKey("user1"), createValue(0L, "FIND_SESSIONS_SINGLE_KEY_ALL"))).get();
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user1"), createValue(0L, "FIND_SESSIONS_NONE"))).get();
+                    createKey("user1"), createValue(0L, "FIND_SESSIONS_SINGLE_KEY_NONE"))).get();
 
-                // FETCH single key
-                // user2 has 2 sessions
+                // fetch(key) - Fetch all sessions for single key
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user2"), createValue(0L, "FETCH"))).get();
-                // user5 has 1 session
+                    createKey("user2"), createValue(0L, "FETCH_SINGLE_KEY"))).get();
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user5"), createValue(0L, "FETCH"))).get();
-                // Non-existing key
+                    createKey("user5"), createValue(0L, "FETCH_SINGLE_KEY"))).get();
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("user99"), createValue(0L, "FETCH_NONEXISTENT"))).get();
+                    createKey("user99"), createValue(0L, "FETCH_SINGLE_KEY_NONEXISTENT"))).get();
 
-                // TODO
-                // BACKWARD_FETCH single key
+                // TODO: backwardFetch(key) - Backward fetch all sessions for single key
                 // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user1"), createValue(0L, "BACKWARD_FETCH"))).get();
+                //     createKey("user1"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY"))).get();
                 // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user99"), createValue(0L, "BACKWARD_FETCH_NONEXISTENT"))).get();
-                // BACKWARD_FIND_SESSIONS single key
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user2"), createValue(0L, "BACKWARD_FIND_SESSIONS"))).get();
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user99"), createValue(0L, "BACKWARD_FIND_SESSIONS_NONEXISTENT"))).get();
+                //     createKey("user99"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY_NONEXISTENT"))).get();
 
-                // FETCH_RANGE key range
-                // Range user2-user4 -> user2(2 sessions) + user3(1) + user4(1)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("trigger"), createValue(0L, "FETCH_RANGE_USER2_USER4"))).get();
-                // Range user5-user7 -> user5(1) + user6(2) + user7(1)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("trigger"), createValue(0L, "FETCH_RANGE_USER5_USER7"))).get();
-                // Empty range
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("trigger"), createValue(0L, "FETCH_RANGE_EMPTY"))).get();
-
-                // FIND_SESSIONS_RANGE key range
-                // Range user3-user5 -> user3(1) + user4(1) + user5(1)
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_RANGE_USER3_USER5"))).get();
-                // Empty range
-                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_RANGE_EMPTY"))).get();
-
-                // TODO
-                // BACKWARD_FETCH_RANGE tests
+                // TODO: backwardFindSessions(key, time, time) - Backward find sessions for single key
                 // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("trigger"), createValue(0L, "BACKWARD_FETCH_RANGE_USER1_USER7"))).get();
-                // BACKWARD_FIND_SESSIONS_RANGE
+                //     createKey("user2"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY"))).get();
                 // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("trigger"), createValue(0L, "BACKWARD_FIND_SESSIONS_RANGE_USER2_USER6"))).get();
+                //     createKey("user99"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY_NONEXISTENT"))).get();
+
+                // fetch(keyFrom, keyTo) - Fetch sessions for key range
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FETCH_KEY_RANGE_USER2_USER4"))).get();
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FETCH_KEY_RANGE_USER5_USER7"))).get();
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FETCH_KEY_RANGE_EMPTY"))).get();
+
+                // findSessions(keyFrom, keyTo, earliestSessionEndTime, latestSessionStartTime) - Find sessions for key range
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_KEY_RANGE_USER3_USER5"))).get();
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_KEY_RANGE_EMPTY"))).get();
+
+                // findSessions(earliestSessionEndTime, latestSessionEndTime) - Find ALL sessions by time range only
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_TIME_RANGE_ALL"))).get();
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_TIME_RANGE_PARTIAL"))).get();
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_TIME_RANGE_EMPTY"))).get();
+
+                // TODO: backwardFetch(keyFrom, keyTo) - Backward fetch for key range
+                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                //     createKey("trigger"), createValue(0L, "BACKWARD_FETCH_KEY_RANGE"))).get();
+
+                // TODO: backwardFindSessions(keyFrom, keyTo, time, time) - Backward find for key range
+                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                //     createKey("trigger"), createValue(0L, "BACKWARD_FIND_SESSIONS_KEY_RANGE"))).get();
 
                 // REMOVE tests
-                // Remove user3's session
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime + 100000,
                     createKey("user3"), createValue(0L, "REMOVE"))).get();
-                // Remove one of user6's sessions (first one at baseTime+250000)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime + 250000,
                     createKey("user6"), createValue(0L, "REMOVE"))).get();
-                // Remove non-existing key
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                     createKey("user99"), createValue(0L, "REMOVE_NONEXISTENT"))).get();
-                // Remove already removed key
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime + 100000,
                     createKey("user3"), createValue(0L, "REMOVE_ALREADY_REMOVED"))).get();
 
-                // Verify state after removes
-                // Fetch user3-user6 -> user4(1) + user5(1) + user6(1 remaining)
+                // Verify state after removes with fetch(keyFrom, keyTo)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                    createKey("trigger"), createValue(0L, "FETCH_RANGE_AFTER_REMOVE"))).get();
+                    createKey("trigger"), createValue(0L, "FETCH_KEY_RANGE_AFTER_REMOVE"))).get();
 
                 producer.flush();
             }
 
             // Expected outputs:
             // 12 PUTs (user1x4, user2x2, user3, user4, user5, user6x2, user7)
-            // FETCH_SESSION user1 + user4 = 2 records
-            // FIND_SESSIONS_FIRST_TWO (2) + FIND_SESSIONS_FIRST_THREE (3) + FIND_SESSIONS_ALL (4) + FIND_SESSIONS_NONE (0)
-            // FETCH user2 (2 sessions) + user5 (1 session)
-            // FETCH_RANGE_USER2_USER4 = 4 records (user2x2 + user3 + user4)
-            // FETCH_RANGE_USER5_USER7 = 4 records (user5 + user6x2 + user7)
-            // FIND_SESSIONS_RANGE_USER3_USER5
-            // REMOVE user3 + user6
-            // FETCH_RANGE_AFTER_REMOVE  (user4 + user5 + user6 remaining)
+            // FETCH_SESSION_SINGLE user1 + user4 = 2 records
+            // FIND_SESSIONS_SINGLE_KEY: FIRST_TWO (2) + FIRST_THREE (3) + ALL (4) + NONE (0)
+            // FETCH_SINGLE_KEY user2 (2 sessions) + user5 (1 session)
+            // FETCH_KEY_RANGE: USER2_USER4 = 4 records, USER5_USER7 = 4 records
+            // FIND_SESSIONS_KEY_RANGE: USER3_USER5 = 3 records
+            // FIND_SESSIONS_TIME_RANGE: ALL = 12 records, PARTIAL = 3 records, EMPTY = 0 records
+            // REMOVE user3 + user6 = 2 records
+            // FETCH_KEY_RANGE_AFTER_REMOVE = 3 records (user4 + user5 + user6 remaining)
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(OUTPUT_TOPIC, "session-store-test-consumer", 38);
+                consumeRecords(OUTPUT_TOPIC, "session-store-test-consumer", 57);
 
-            assertEquals(42, results.size(), "Should have 38 output records");
+            assertEquals(57, results.size(), "Should have 57 output records");
 
             int idx = 0;
 
@@ -340,69 +327,90 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             assertEquals(700L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "PUT user7");
 
-            // Verify FETCH_SESSION user1
+            // Verify FETCH_SESSION_SINGLE user1
             assertEquals("user1", results.get(idx).key().get("userId").toString());
             assertEquals(103L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_SESSION user1");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_SESSION_SINGLE user1");
 
-            // Verify FETCH_SESSION user4
+            // Verify FETCH_SESSION_SINGLE user4
             assertEquals("user4", results.get(idx).key().get("userId").toString());
             assertEquals(400L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_SESSION user4");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_SESSION_SINGLE user4");
 
-            // Verify FIND_SESSIONS_FIRST_TWO user1 (100 and 101)
+            // Verify FIND_SESSIONS_SINGLE_KEY_FIRST_TWO user1 (100 and 101)
             assertEquals(100L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_FIRST_TWO user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_FIRST_TWO user1");
 
             assertEquals(101L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_FIRST_TWO user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_FIRST_TWO user1");
 
-            // Verify FIND_SESSIONS_FIRST_THREE user1 (100, 101, 102)
+            // Verify FIND_SESSIONS_SINGLE_KEY_FIRST_THREE user1 (100, 101, 102)
             assertEquals(100L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_FIRST_TWO user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_FIRST_THREE user1");
             assertEquals(101L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_FIRST_THREE user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_FIRST_THREE user1");
             assertEquals(102L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_FIRST_THREE user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_FIRST_THREE user1");
 
-            // Verify FIND_SESSIONS_ALL user1 (100, 101, 102, 103)
+            // Verify FIND_SESSIONS_SINGLE_KEY_ALL user1 (100, 101, 102, 103)
             assertEquals(100L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_FIRST_TWO user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_ALL user1");
             assertEquals(101L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_ALL user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_ALL user1");
             assertEquals(102L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_ALL user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_ALL user1");
             assertEquals(103L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_ALL user1");
+            assertSchemaIdHeaders(results.get(idx++), "FIND_SESSIONS_SINGLE_KEY_ALL user1");
 
-            // FIND_SESSIONS_NONE user1 -> 0 records
+            // FIND_SESSIONS_SINGLE_KEY_NONE user1 -> 0 records
 
-            // Verify FETCH user2 (201, 202)
+            // Verify FETCH_SINGLE_KEY user2 (201, 202)
             assertEquals("user2", results.get(idx).key().get("userId").toString());
             assertEquals(201L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH user2");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_SINGLE_KEY user2");
             assertEquals("user2", results.get(idx).key().get("userId").toString());
             assertEquals(202L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH user2");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_SINGLE_KEY user2");
 
-            // Verify FETCH user5 (500)
+            // Verify FETCH_SINGLE_KEY user5 (500)
             assertEquals("user5", results.get(idx).key().get("userId").toString());
             assertEquals(500L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH user5");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_SINGLE_KEY user5");
 
-            // Verify FETCH_RANGE user2-user4
+            // Verify FETCH_KEY_RANGE user2-user4
             idx = assertRangeResults(results, idx,
                 new String[]{"user2:201", "user2:202", "user3:300", "user4:400"},
-                "FETCH_RANGE user2-user4");
+                "FETCH_KEY_RANGE user2-user4");
 
-            // Verify FETCH_RANGE user5-user7
+            // Verify FETCH_KEY_RANGE user5-user7
             idx = assertRangeResults(results, idx,
                 new String[]{"user5:500", "user6:601", "user6:602", "user7:700"},
-                "FETCH_RANGE user5-user7");
+                "FETCH_KEY_RANGE user5-user7");
 
-            // Verify FIND_SESSIONS_RANGE user3-user5
+            // Verify FIND_SESSIONS_KEY_RANGE user3-user5
             idx = assertRangeResults(results, idx, new String[]{"user3:300", "user4:400", "user5:500"},
-                "FIND_SESSIONS_RANGE user3-user5");
+                "FIND_SESSIONS_KEY_RANGE user3-user5");
+
+            // Verify FIND_SESSIONS_TIME_RANGE_ALL - all 12 sessions across all keys
+            idx = assertRangeResults(results, idx,
+                new String[]{
+                    "user1:100", "user1:101", "user1:102", "user1:103",
+                    "user2:201", "user2:202",
+                    "user3:300",
+                    "user4:400",
+                    "user5:500",
+                    "user6:601", "user6:602",
+                    "user7:700"
+                },
+                "FIND_SESSIONS_TIME_RANGE_ALL");
+
+            // Verify FIND_SESSIONS_TIME_RANGE_PARTIAL - sessions ending between baseTime+50000 and baseTime+150000
+            // user2 (baseTime+50000, count=201) + user3 (baseTime+100000, count=300) + user4 (baseTime+150000, count=400)
+            idx = assertRangeResults(results, idx,
+                new String[]{"user2:201", "user3:300", "user4:400"},
+                "FIND_SESSIONS_TIME_RANGE_PARTIAL");
+
+            // FIND_SESSIONS_TIME_RANGE_EMPTY - 0 records (no assertions needed)
 
             // Verify REMOVE user3
             assertEquals("user3", results.get(idx).key().get("userId").toString());
@@ -414,8 +422,8 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             assertEquals(601L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "REMOVE user6");
 
-            // Verify FETCH_RANGE user3-user6 after remove
-            assertRangeResults(results, idx, new String[]{"user4:400", "user5:500", "user6:602"}, "FETCH_RANGE user3-user6");
+            // Verify FETCH_KEY_RANGE user3-user6 after remove
+            assertRangeResults(results, idx, new String[]{"user4:400", "user5:500", "user6:602"}, "FETCH_KEY_RANGE user3-user6");
 
         } finally {
             closeStreams(streams);
@@ -618,63 +626,82 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 case "REMOVE_ALREADY_REMOVED":
                     handleRemove(record);
                     break;
-                case "FETCH_SESSION":
-                case "FETCH_SESSION_NONEXISTENT":
-                    handleFetchSession(record);
+                // fetchSession(key, startTime, endTime) - fetch single specific session
+                case "FETCH_SESSION_SINGLE":
+                case "FETCH_SESSION_SINGLE_NONEXISTENT":
+                    handleFetchSessionSingle(record);
                     break;
-                case "FIND_SESSIONS_FIRST_TWO":
-                    handleFindSessionsFirstTwo(record);
+                // findSessions(key, earliestSessionEndTime, latestSessionStartTime) - find sessions for single key with time filter
+                case "FIND_SESSIONS_SINGLE_KEY_FIRST_TWO":
+                    handleFindSessionsSingleKeyFirstTwo(record);
                     break;
-                case "FIND_SESSIONS_FIRST_THREE":
-                    handleFindSessionsFirstThree(record);
+                case "FIND_SESSIONS_SINGLE_KEY_FIRST_THREE":
+                    handleFindSessionsSingleKeyFirstThree(record);
                     break;
-                case "FIND_SESSIONS_ALL":
-                    handleFindSessionsAll(record);
+                case "FIND_SESSIONS_SINGLE_KEY_ALL":
+                    handleFindSessionsSingleKeyAll(record);
                     break;
-                case "FIND_SESSIONS_NONE":
-                    handleFindSessionsNone(record);
+                case "FIND_SESSIONS_SINGLE_KEY_NONE":
+                    handleFindSessionsSingleKeyNone(record);
                     break;
-                case "FETCH":
-                case "FETCH_NONEXISTENT":
-                    handleFetch(record);
+                // fetch(key) - fetch all sessions for single key
+                case "FETCH_SINGLE_KEY":
+                case "FETCH_SINGLE_KEY_NONEXISTENT":
+                    handleFetchSingleKey(record);
                     break;
-                case "BACKWARD_FETCH":
-                case "BACKWARD_FETCH_NONEXISTENT":
-                    handleBackwardFetch(record);
+                // backwardFetch(key) - backward fetch all sessions for single key
+                case "BACKWARD_FETCH_SINGLE_KEY":
+                case "BACKWARD_FETCH_SINGLE_KEY_NONEXISTENT":
+                    handleBackwardFetchSingleKey(record);
                     break;
-                case "BACKWARD_FIND_SESSIONS":
-                case "BACKWARD_FIND_SESSIONS_NONEXISTENT":
-                    handleBackwardFindSessions(record);
+                // backwardFindSessions(key, earliestSessionEndTime, latestSessionStartTime)
+                case "BACKWARD_FIND_SESSIONS_SINGLE_KEY":
+                case "BACKWARD_FIND_SESSIONS_SINGLE_KEY_NONEXISTENT":
+                    handleBackwardFindSessionsSingleKey(record);
                     break;
-                case "FETCH_RANGE":
-                    handleFetchRange(record);
+                // fetch(keyFrom, keyTo) - fetch sessions for key range
+                case "FETCH_KEY_RANGE":
+                    handleFetchKeyRange(record);
                     break;
-                case "FETCH_RANGE_USER2_USER4":
-                    handleFetchRange(record, "user2", "user4");
+                case "FETCH_KEY_RANGE_USER2_USER4":
+                    handleFetchKeyRange(record, "user2", "user4");
                     break;
-                case "FETCH_RANGE_USER5_USER7":
-                    handleFetchRange(record, "user5", "user7");
+                case "FETCH_KEY_RANGE_USER5_USER7":
+                    handleFetchKeyRange(record, "user5", "user7");
                     break;
-                case "FETCH_RANGE_EMPTY":
-                    handleFetchRangeEmpty(record);
+                case "FETCH_KEY_RANGE_EMPTY":
+                    handleFetchKeyRangeEmpty(record);
                     break;
-                case "FETCH_RANGE_AFTER_REMOVE":
-                    handleFetchRange(record, "user3", "user6");
+                case "FETCH_KEY_RANGE_AFTER_REMOVE":
+                    handleFetchKeyRange(record, "user3", "user6");
                     break;
-                case "FIND_SESSIONS_RANGE":
-                    handleFindSessionsRange(record);
+                // findSessions(keyFrom, keyTo, earliestSessionEndTime, latestSessionStartTime)
+                case "FIND_SESSIONS_KEY_RANGE":
+                    handleFindSessionsKeyRange(record);
                     break;
-                case "FIND_SESSIONS_RANGE_USER3_USER5":
-                    handleFindSessionsRange(record, "user3", "user5");
+                case "FIND_SESSIONS_KEY_RANGE_USER3_USER5":
+                    handleFindSessionsKeyRange(record, "user3", "user5");
                     break;
-                case "FIND_SESSIONS_RANGE_EMPTY":
-                    handleFindSessionsRangeEmpty(record);
+                case "FIND_SESSIONS_KEY_RANGE_EMPTY":
+                    handleFindSessionsKeyRangeEmpty(record);
                     break;
-                case "BACKWARD_FETCH_RANGE":
-                    handleBackwardFetchRange(record);
+                // backwardFetch(keyFrom, keyTo)
+                case "BACKWARD_FETCH_KEY_RANGE":
+                    handleBackwardFetchKeyRange(record);
                     break;
-                case "BACKWARD_FIND_SESSIONS_RANGE":
-                    handleBackwardFindSessionsRange(record);
+                // backwardFindSessions(keyFrom, keyTo, earliestSessionEndTime, latestSessionStartTime)
+                case "BACKWARD_FIND_SESSIONS_KEY_RANGE":
+                    handleBackwardFindSessionsKeyRange(record);
+                    break;
+                // findSessions(earliestSessionEndTime, latestSessionEndTime) - find ALL sessions by time only
+                case "FIND_SESSIONS_TIME_RANGE_ALL":
+                    handleFindSessionsTimeRangeAll(record);
+                    break;
+                case "FIND_SESSIONS_TIME_RANGE_PARTIAL":
+                    handleFindSessionsTimeRangePartial(record);
+                    break;
+                case "FIND_SESSIONS_TIME_RANGE_EMPTY":
+                    handleFindSessionsTimeRangeEmpty(record);
                     break;
                 default:
                     throw new IllegalArgumentException("Unknown operation: " + operation);
@@ -687,7 +714,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             GenericRecord valueToStore = new GenericData.Record(record.value().getSchema());
             valueToStore.put("count", count);
             valueToStore.put("operation", "PUT");
-
+            
             Windowed<GenericRecord> sessionKey = new Windowed<>(
                 record.key(),
                 new org.apache.kafka.streams.kstream.internals.SessionWindow(record.timestamp(), record.timestamp())
@@ -730,9 +757,9 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Fetch a specific session by key.
+         * fetchSession(key, startTime, endTime) - Fetch a single specific session by key and time.
          */
-        private void handleFetchSession(Record<GenericRecord, GenericRecord> record) {
+        private void handleFetchSessionSingle(Record<GenericRecord, GenericRecord> record) {
             String keyId = record.key().get("userId").toString();
             Windowed<GenericRecord> sessionKey = sessionKeys.get(keyId);
 
@@ -752,7 +779,10 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
-        private void handleFindSessionsFirstTwo(Record<GenericRecord, GenericRecord> record) {
+        /**
+         * findSessions(key, earliestSessionEndTime, latestSessionStartTime) - Find sessions for single key with time filter.
+         */
+        private void handleFindSessionsSingleKeyFirstTwo(Record<GenericRecord, GenericRecord> record) {
             // Range [0, baseTime+120000] covers only first 2 session
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.findSessions(record.key(), 0L, record.timestamp() + 100000)) {
@@ -760,7 +790,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
-        private void handleFindSessionsFirstThree(Record<GenericRecord, GenericRecord> record) {
+        private void handleFindSessionsSingleKeyFirstThree(Record<GenericRecord, GenericRecord> record) {
             // Range [0, baseTime+500000] covers first three sessions
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.findSessions(record.key(), 0L, record.timestamp() + 500000)) {
@@ -768,7 +798,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
-        private void handleFindSessionsAll(Record<GenericRecord, GenericRecord> record) {
+        private void handleFindSessionsSingleKeyAll(Record<GenericRecord, GenericRecord> record) {
             // Range [0, MAX] covers all sessions
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.findSessions(record.key(), 0L, Long.MAX_VALUE)) {
@@ -776,7 +806,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
-        private void handleFindSessionsNone(Record<GenericRecord, GenericRecord> record) {
+        private void handleFindSessionsSingleKeyNone(Record<GenericRecord, GenericRecord> record) {
             // Range [baseTime+2000000, MAX] covers no sessions
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.findSessions(record.key(), record.timestamp() + 2000000, Long.MAX_VALUE)) {
@@ -799,9 +829,9 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Fetch all sessions for the key
+         * fetch(key) - Fetch all sessions for a single key.
          */
-        private void handleFetch(Record<GenericRecord, GenericRecord> record) {
+        private void handleFetchSingleKey(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.fetch(record.key())) {
                 while (iter.hasNext()) {
@@ -818,9 +848,9 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Fetch all sessions for the key in reverse order
+         * backwardFetch(key) - Fetch all sessions for a single key in reverse order.
          */
-        private void handleBackwardFetch(Record<GenericRecord, GenericRecord> record) {
+        private void handleBackwardFetchSingleKey(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.backwardFetch(record.key())) {
                 while (iter.hasNext()) {
@@ -837,9 +867,9 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Find sessions in reverse order
+         * backwardFindSessions(key, earliestSessionEndTime, latestSessionStartTime) - Find sessions for single key in reverse order.
          */
-        private void handleBackwardFindSessions(Record<GenericRecord, GenericRecord> record) {
+        private void handleBackwardFindSessionsSingleKey(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.backwardFindSessions(record.key(), 0L, Long.MAX_VALUE)) {
                 while (iter.hasNext()) {
@@ -856,16 +886,16 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Fetch sessions for a range of keys (null to null = all keys)
+         * fetch(keyFrom, keyTo) - Fetch sessions for a key range (null to null = all keys).
          */
-        private void handleFetchRange(Record<GenericRecord, GenericRecord> record) {
+        private void handleFetchKeyRange(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.fetch(null, null)) {
                 forwardAll(iter, record);
             }
         }
 
-        private void handleFetchRange(Record<GenericRecord, GenericRecord> record, String fromUser, String toUser) {
+        private void handleFetchKeyRange(Record<GenericRecord, GenericRecord> record, String fromUser, String toUser) {
             GenericRecord keyFrom = createKeyRecord(fromUser);
             GenericRecord keyTo = createKeyRecord(toUser);
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
@@ -874,7 +904,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
-        private void handleFetchRangeEmpty(Record<GenericRecord, GenericRecord> record) {
+        private void handleFetchKeyRangeEmpty(Record<GenericRecord, GenericRecord> record) {
             GenericRecord keyFrom = createKeyRecord("user99");
             GenericRecord keyTo = createKeyRecord("user99z");
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
@@ -884,16 +914,16 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Find sessions for a range of keys in a time range (null to null = all)
+         * findSessions(keyFrom, keyTo, earliestSessionEndTime, latestSessionStartTime) - Find sessions for key range with time filter.
          */
-        private void handleFindSessionsRange(Record<GenericRecord, GenericRecord> record) {
+        private void handleFindSessionsKeyRange(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.findSessions(null, null, 0L, Long.MAX_VALUE)) {
                 forwardAll(iter, record);
             }
         }
 
-        private void handleFindSessionsRange(Record<GenericRecord, GenericRecord> record, String fromUser, String toUser) {
+        private void handleFindSessionsKeyRange(Record<GenericRecord, GenericRecord> record, String fromUser, String toUser) {
             GenericRecord keyFrom = createKeyRecord(fromUser);
             GenericRecord keyTo = createKeyRecord(toUser);
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
@@ -902,7 +932,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
-        private void handleFindSessionsRangeEmpty(Record<GenericRecord, GenericRecord> record) {
+        private void handleFindSessionsKeyRangeEmpty(Record<GenericRecord, GenericRecord> record) {
             GenericRecord keyFrom = createKeyRecord("user99");
             GenericRecord keyTo = createKeyRecord("user99z");
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
@@ -912,9 +942,9 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Backward fetch sessions for a range of keys (null to null = all)
+         * backwardFetch(keyFrom, keyTo) - Backward fetch sessions for a key range (null to null = all).
          */
-        private void handleBackwardFetchRange(Record<GenericRecord, GenericRecord> record) {
+        private void handleBackwardFetchKeyRange(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.backwardFetch(null, null)) {
                 forwardAll(iter, record);
@@ -922,11 +952,46 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         }
 
         /**
-         * Backward find sessions for a range of keys in a time range (null to null = all)
+         * backwardFindSessions(keyFrom, keyTo, earliestSessionEndTime, latestSessionStartTime) - Backward find sessions for key range.
          */
-        private void handleBackwardFindSessionsRange(Record<GenericRecord, GenericRecord> record) {
+        private void handleBackwardFindSessionsKeyRange(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.backwardFindSessions(null, null, 0L, Long.MAX_VALUE)) {
+                forwardAll(iter, record);
+            }
+        }
+
+        /**
+         * findSessions(earliestSessionEndTime, latestSessionEndTime) - Find ALL sessions by time range only (no key filter).
+         */
+        private void handleFindSessionsTimeRangeAll(Record<GenericRecord, GenericRecord> record) {
+            try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
+                     store.findSessions(0L, Long.MAX_VALUE)) {
+                forwardAll(iter, record);
+            }
+        }
+
+        /**
+         * findSessions(earliestSessionEndTime, latestSessionEndTime) - Find sessions in a partial time range.
+         */
+        private void handleFindSessionsTimeRangePartial(Record<GenericRecord, GenericRecord> record) {
+            // Get baseTime from the value - use a narrow time window
+            long time = record.timestamp();
+            // Only find sessions that end within a narrow window around baseTime+50000 to baseTime+150000
+            // This should capture user2 (baseTime+50000), user3 (baseTime+100000), user4 (baseTime+150000)
+            try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
+                     store.findSessions(time + 50000, time + 150000)) {
+                forwardAll(iter, record);
+            }
+        }
+
+        /**
+         * findSessions(earliestSessionEndTime, latestSessionEndTime) - Find sessions in an empty time range.
+         */
+        private void handleFindSessionsTimeRangeEmpty(Record<GenericRecord, GenericRecord> record) {
+            // Use a time range far in the future where no sessions exist
+            try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
+                     store.findSessions(Long.MAX_VALUE - 1000, Long.MAX_VALUE)) {
                 forwardAll(iter, record);
             }
         }
@@ -1101,15 +1166,6 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         return value;
     }
 
-    private Properties createProducerPropsNoHeaders() {
-        Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
-        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        return props;
-    }
-
     private Properties createChangelogConsumerProps(String groupId) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
@@ -1166,9 +1222,8 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
 
             long baseTime = System.currentTimeMillis();
 
-            // Use producer WITHOUT headers to test changelog header generation
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
-                     new KafkaProducer<>(createProducerPropsNoHeaders())) {
+                     new KafkaProducer<>(createProducerProps())) {
 
                 // PUT user-1:10
                 producer.send(new ProducerRecord<>(inputTopic, null, baseTime,
@@ -1182,17 +1237,17 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 producer.send(new ProducerRecord<>(inputTopic, null, baseTime + 2000,
                     createKey("user-3"), createValue(30L, "PUT"))).get();
 
-                // FETCH_SESSION user-1 (should return 10)
+                // FETCH_SESSION_SINGLE user-1 (should return 10)
                 producer.send(new ProducerRecord<>(inputTopic, null, baseTime + 3000,
-                    createKey("user-1"), createValue(0L, "FETCH_SESSION"))).get();
+                    createKey("user-1"), createValue(0L, "FETCH_SESSION_SINGLE"))).get();
 
                 // REMOVE user-1
                 producer.send(new ProducerRecord<>(inputTopic, null, baseTime + 4000,
                     createKey("user-1"), createValue(0L, "REMOVE"))).get();
 
-                // FETCH_SESSION user-1 after remove (should return nothing)
+                // FETCH_SESSION_SINGLE user-1 after remove (should return nothing)
                 producer.send(new ProducerRecord<>(inputTopic, null, baseTime + 5000,
-                    createKey("user-1"), createValue(0L, "FETCH_SESSION"))).get();
+                    createKey("user-1"), createValue(0L, "FETCH_SESSION_SINGLE"))).get();
 
                 // REMOVE user-99 (non-existent)
                 producer.send(new ProducerRecord<>(inputTopic, null, baseTime + 6000,
@@ -1209,7 +1264,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 producer.flush();
             }
 
-            // Expected: 3 PUTs + 1 FETCH_SESSION (user-1) + 1 REMOVE (user-1) + 1 REMOVE (user-2) + 1 PUT_NULL (user-3) = 7
+            // Expected: 3 PUTs + 1 FETCH_SESSION_SINGLE (user-1) + 1 REMOVE (user-1) + 1 REMOVE (user-2) + 1 PUT_NULL (user-3) = 7
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
                 consumeRecords(outputTopic, "session-delete-test-consumer", 7);
 
@@ -1232,10 +1287,10 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             assertEquals(30L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "PUT user-3");
 
-            // Verify FETCH_SESSION user-1
+            // Verify FETCH_SESSION_SINGLE user-1
             assertEquals("user-1", results.get(idx).key().get("userId").toString());
             assertEquals(10L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_SESSION user-1");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_SESSION_SINGLE user-1");
 
             // Verify REMOVE user-1
             assertEquals("user-1", results.get(idx).key().get("userId").toString());
@@ -1257,17 +1312,6 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
 
             List<ConsumerRecord<byte[], byte[]>> changelogRecords =
                 consumeChangelogRecords(changelogTopic, "session-changelog-consumer", 5);
-
-            // Debug output
-            System.out.println("=== Session Changelog records from topic: " + changelogTopic + " ===");
-            System.out.println("Total records: " + changelogRecords.size());
-            for (int i = 0; i < changelogRecords.size(); i++) {
-                ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
-                System.out.println("Record " + i + ": key=" + (r.key() != null ? r.key().length + " bytes" : "null")
-                    + ", value=" + (r.value() != null ? r.value().length + " bytes" : "NULL (tombstone)")
-                    + ", headers=" + r.headers());
-            }
-            System.out.println("=== End session changelog records ===");
 
             int tombstoneCount = 0;
             for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
@@ -1321,8 +1365,8 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 case "REMOVE":
                     handleRemove(record);
                     break;
-                case "FETCH_SESSION":
-                    handleFetchSession(record);
+                case "FETCH_SESSION_SINGLE":
+                    handleFetchSessionSingle(record);
                     break;
                 default:
                     throw new IllegalArgumentException("Unknown operation: " + operation);
@@ -1406,7 +1450,10 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
-        private void handleFetchSession(Record<GenericRecord, GenericRecord> record) {
+        /**
+         * fetchSession(key, startTime, endTime) - Fetch a single specific session.
+         */
+        private void handleFetchSessionSingle(Record<GenericRecord, GenericRecord> record) {
             String keyId = record.key().get("userId").toString();
             Windowed<GenericRecord> sessionKey = lastSessionKeys.get(keyId);
 
