@@ -70,7 +70,6 @@ import org.apache.kafka.streams.processor.api.Record;
 import org.apache.kafka.streams.processor.StateStore;
 import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.QueryableStoreType;
-import org.apache.kafka.streams.state.QueryableStoreTypes;
 import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.Stores;
 import org.apache.kafka.streams.state.TimestampedKeyValueStoreWithHeaders;
@@ -78,7 +77,6 @@ import org.apache.kafka.streams.state.ValueTimestampHeaders;
 import org.apache.kafka.streams.state.internals.CompositeReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.internals.StateStoreProvider;
 import org.apache.kafka.common.serialization.Serializer;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -595,7 +593,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
     /**
      * Test delete by putting null value, putIfAbsent with null, and get on non-existent/deleted entries.
      */
-    @Disabled
+
     @Test
     public void shouldDeleteWithNullValueAndGetNonExistent() throws Exception {
         String inputTopic = "delete-input";
@@ -791,7 +789,9 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                 if (record.value() == null) {
                     // Verify key schema ID header is present in tombstone record
                     tombstoneCount++;
-                    assertSchemaIdHeaders(record.headers(), "Changelog record with null value (tombstone)");
+                    Header keySchemaIdHeader = record.headers().lastHeader(SchemaId.KEY_SCHEMA_ID_HEADER);
+                    assertNotNull(keySchemaIdHeader,
+                        "Tombstone record should have key schema ID header");
                 }
             }
             System.out.println("Tombstone count: " + tombstoneCount);
@@ -1191,6 +1191,8 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         }
 
         private void handleDelete(Record<GenericRecord, GenericRecord> record) {
+            record.headers().remove(SchemaId.KEY_SCHEMA_ID_HEADER);
+            record.headers().remove(SchemaId.VALUE_SCHEMA_ID_HEADER);
             ValueTimestampHeaders<GenericRecord> deletedRecord = store.delete(record.key());
 
             if (deletedRecord != null) {

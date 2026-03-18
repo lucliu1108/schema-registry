@@ -76,7 +76,6 @@ import org.apache.kafka.streams.state.Stores;
 import org.apache.kafka.streams.StoreQueryParameters;
 import org.apache.kafka.streams.state.internals.CompositeReadOnlySessionStore;
 import org.apache.kafka.streams.state.internals.StateStoreProvider;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -197,13 +196,13 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                     createKey("user99"), createValue(0L, "FETCH_SINGLE_KEY_NONEXISTENT"))).get();
 
-                // TODO: backwardFetch(key) - Backward fetch all sessions for single key
+                // backwardFetch(key) - Backward fetch all sessions for single key
                  producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                      createKey("user1"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY"))).get();
                  producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                      createKey("user99"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY_NONEXISTENT"))).get();
 
-                // TODO: backwardFindSessions(key, time, time) - Backward find sessions for single key
+                // backwardFindSessions(key, time, time) - Backward find sessions for single key
                  producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                      createKey("user2"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY"))).get();
                  producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
@@ -231,11 +230,11 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                     createKey("trigger"), createValue(0L, "FIND_SESSIONS_TIME_RANGE_EMPTY"))).get();
 
-                // TODO: backwardFetch(keyFrom, keyTo) - Backward fetch for key range
+                // backwardFetch(keyFrom, keyTo) - Backward fetch for key range
                  producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                      createKey("trigger"), createValue(0L, "BACKWARD_FETCH_KEY_RANGE"))).get();
 
-                // TODO: backwardFindSessions(keyFrom, keyTo, time, time) - Backward find for key range
+                // backwardFindSessions(keyFrom, keyTo, time, time) - Backward find for key range
                  producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
                      createKey("trigger"), createValue(0L, "BACKWARD_FIND_SESSIONS_KEY_RANGE"))).get();
 
@@ -1384,7 +1383,6 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         return results;
     }
 
-    @Disabled
     @Test
     public void shouldRemoveSessionAndVerifyChangelogHeaders() throws Exception {
         String inputTopic = "session-delete-input";

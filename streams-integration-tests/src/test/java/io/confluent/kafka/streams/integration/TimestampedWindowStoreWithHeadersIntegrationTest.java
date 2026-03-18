@@ -78,7 +78,6 @@ import org.apache.kafka.streams.state.ValueTimestampHeaders;
 import org.apache.kafka.streams.state.WindowStoreIterator;
 import org.apache.kafka.streams.state.internals.CompositeReadOnlyWindowStore;
 import org.apache.kafka.streams.state.internals.StateStoreProvider;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -654,7 +653,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
     /**
      * Test delete by putting null value, and fetch on non-existent/deleted entries.
      */
-    @Disabled
     @Test
     public void shouldDeleteWithNullValueAndFetchNonExistent() throws Exception {
         String inputTopic = "delete-input";
@@ -917,7 +915,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             ValueTimestampHeaders<GenericRecord> toStore =
                 ValueTimestampHeaders.make(record.value(), record.timestamp(), record.headers());
             store.put(record.key(), toStore, windowStart);
-
             ValueTimestampHeaders<GenericRecord> stored = store.fetch(record.key(), windowStart);
             context.forward(new Record<>(
                 record.key(), stored.value(), stored.timestamp(), stored.headers()));
