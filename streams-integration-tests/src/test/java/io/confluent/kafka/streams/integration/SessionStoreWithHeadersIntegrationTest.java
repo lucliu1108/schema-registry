@@ -29,6 +29,7 @@ import io.confluent.kafka.serializers.schema.id.HeaderSchemaIdSerializer;
 import io.confluent.kafka.serializers.schema.id.SchemaId;
 import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -197,16 +198,16 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                     createKey("user99"), createValue(0L, "FETCH_SINGLE_KEY_NONEXISTENT"))).get();
 
                 // TODO: backwardFetch(key) - Backward fetch all sessions for single key
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user1"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY"))).get();
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user99"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY_NONEXISTENT"))).get();
+                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                     createKey("user1"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY"))).get();
+                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                     createKey("user99"), createValue(0L, "BACKWARD_FETCH_SINGLE_KEY_NONEXISTENT"))).get();
 
                 // TODO: backwardFindSessions(key, time, time) - Backward find sessions for single key
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user2"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY"))).get();
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("user99"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY_NONEXISTENT"))).get();
+                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                     createKey("user2"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY"))).get();
+                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                     createKey("user99"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY_NONEXISTENT"))).get();
 
                 // fetch(keyFrom, keyTo) - Fetch sessions for key range
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
@@ -231,12 +232,33 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                     createKey("trigger"), createValue(0L, "FIND_SESSIONS_TIME_RANGE_EMPTY"))).get();
 
                 // TODO: backwardFetch(keyFrom, keyTo) - Backward fetch for key range
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("trigger"), createValue(0L, "BACKWARD_FETCH_KEY_RANGE"))).get();
+                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                     createKey("trigger"), createValue(0L, "BACKWARD_FETCH_KEY_RANGE"))).get();
 
                 // TODO: backwardFindSessions(keyFrom, keyTo, time, time) - Backward find for key range
-                // producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
-                //     createKey("trigger"), createValue(0L, "BACKWARD_FIND_SESSIONS_KEY_RANGE"))).get();
+                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                     createKey("trigger"), createValue(0L, "BACKWARD_FIND_SESSIONS_KEY_RANGE"))).get();
+
+                // Instant variants
+                // fetchSession(key, Instant, Instant)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("user1"), createValue(0L, "FETCH_SESSION_SINGLE_INSTANT"))).get();
+
+                // findSessions(key, Instant, Instant)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("user1"), createValue(0L, "FIND_SESSIONS_SINGLE_KEY_INSTANT"))).get();
+
+                // findSessions(keyFrom, keyTo, Instant, Instant)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "FIND_SESSIONS_KEY_RANGE_INSTANT"))).get();
+
+                // backwardFindSessions(key, Instant, Instant)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("user1"), createValue(0L, "BACKWARD_FIND_SESSIONS_SINGLE_KEY_INSTANT"))).get();
+
+                // backwardFindSessions(keyFrom, keyTo, Instant, Instant)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime,
+                    createKey("trigger"), createValue(0L, "BACKWARD_FIND_SESSIONS_KEY_RANGE_INSTANT"))).get();
 
                 // REMOVE tests
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, baseTime + 100000,
@@ -260,15 +282,24 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             // FETCH_SESSION_SINGLE user1 + user4 = 2 records
             // FIND_SESSIONS_SINGLE_KEY: FIRST_TWO (2) + FIRST_THREE (3) + ALL (4) + NONE (0)
             // FETCH_SINGLE_KEY user2 (2 sessions) + user5 (1 session)
+            // BACKWARD_FETCH_SINGLE_KEY user1 = 4 records
+            // BACKWARD_FIND_SESSIONS_SINGLE_KEY user2 = 2 records
             // FETCH_KEY_RANGE: USER2_USER4 = 4 records, USER5_USER7 = 4 records
             // FIND_SESSIONS_KEY_RANGE: USER3_USER5 = 3 records
             // FIND_SESSIONS_TIME_RANGE: ALL = 12 records, PARTIAL = 3 records, EMPTY = 0 records
+            // BACKWARD_FETCH_KEY_RANGE = 12 records
+            // BACKWARD_FIND_SESSIONS_KEY_RANGE = 12 records
+            // FETCH_SESSION_SINGLE_INSTANT user1 = 1 record
+            // FIND_SESSIONS_SINGLE_KEY_INSTANT user1 (baseTime to baseTime+100000) = 2 records
+            // FIND_SESSIONS_KEY_RANGE_INSTANT user3-user5 (baseTime+100000 to baseTime+250000) = 3 records
+            // BACKWARD_FIND_SESSIONS_SINGLE_KEY_INSTANT user1 (baseTime to baseTime+600000) = 3 records
+            // BACKWARD_FIND_SESSIONS_KEY_RANGE_INSTANT (baseTime+50000 to baseTime+350000) = 6 records
             // REMOVE user3 + user6 = 2 records
             // FETCH_KEY_RANGE_AFTER_REMOVE = 3 records (user4 + user5 + user6 remaining)
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(OUTPUT_TOPIC, "session-store-test-consumer", 57);
+                consumeRecords(OUTPUT_TOPIC, "session-store-test-consumer", 102);
 
-            assertEquals(57, results.size(), "Should have 57 output records");
+            assertEquals(102, results.size(), "Should have 102 output records");
 
             int idx = 0;
 
@@ -377,6 +408,16 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             assertEquals(500L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "FETCH_SINGLE_KEY user5");
 
+            // Verify BACKWARD_FETCH_SINGLE_KEY user1 (103, 102, 101, 100 in reverse order)
+            idx = assertRangeResults(results, idx,
+                new String[]{"user1:103", "user1:102", "user1:101", "user1:100"},
+                "BACKWARD_FETCH_SINGLE_KEY user1");
+
+            // Verify BACKWARD_FIND_SESSIONS_SINGLE_KEY user2 (202, 201 in reverse order)
+            idx = assertRangeResults(results, idx,
+                new String[]{"user2:202", "user2:201"},
+                "BACKWARD_FIND_SESSIONS_SINGLE_KEY user2");
+
             // Verify FETCH_KEY_RANGE user2-user4
             idx = assertRangeResults(results, idx,
                 new String[]{"user2:201", "user2:202", "user3:300", "user4:400"},
@@ -411,6 +452,64 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 "FIND_SESSIONS_TIME_RANGE_PARTIAL");
 
             // FIND_SESSIONS_TIME_RANGE_EMPTY - 0 records (no assertions needed)
+
+            // Verify BACKWARD_FETCH_KEY_RANGE (all 12 sessions in reverse key order)
+            idx = assertRangeResults(results, idx,
+                new String[]{
+                    "user7:700",
+                    "user6:602", "user6:601",
+                    "user5:500",
+                    "user4:400",
+                    "user3:300",
+                    "user2:202", "user2:201",
+                    "user1:103", "user1:102", "user1:101", "user1:100"
+                },
+                "BACKWARD_FETCH_KEY_RANGE");
+
+            // Verify BACKWARD_FIND_SESSIONS_KEY_RANGE (all 12 sessions in reverse key order)
+            idx = assertRangeResults(results, idx,
+                new String[]{
+                    "user7:700",
+                    "user6:602", "user6:601",
+                    "user5:500",
+                    "user4:400",
+                    "user3:300",
+                    "user2:202", "user2:201",
+                    "user1:103", "user1:102", "user1:101", "user1:100"
+                },
+                "BACKWARD_FIND_SESSIONS_KEY_RANGE");
+
+            // Verify FETCH_SESSION_SINGLE_INSTANT user1
+            assertEquals("user1", results.get(idx).key().get("userId").toString());
+            assertEquals(100L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_SESSION_SINGLE_INSTANT user1");
+
+            // Verify FIND_SESSIONS_SINGLE_KEY_INSTANT user1 (baseTime to baseTime+100000 = 2 sessions)
+            idx = assertRangeResults(results, idx,
+                new String[]{"user1:100", "user1:101"},
+                "FIND_SESSIONS_SINGLE_KEY_INSTANT user1");
+
+            // Verify FIND_SESSIONS_KEY_RANGE_INSTANT user3-user5 (baseTime+100000 to baseTime+250000 = 3 sessions)
+            idx = assertRangeResults(results, idx,
+                new String[]{"user3:300", "user4:400", "user5:500"},
+                "FIND_SESSIONS_KEY_RANGE_INSTANT user3-user5");
+
+            // Verify BACKWARD_FIND_SESSIONS_SINGLE_KEY_INSTANT user1 (baseTime to baseTime+600000 = 3 sessions in reverse)
+            idx = assertRangeResults(results, idx,
+                new String[]{"user1:102", "user1:101", "user1:100"},
+                "BACKWARD_FIND_SESSIONS_SINGLE_KEY_INSTANT user1");
+
+            // Verify BACKWARD_FIND_SESSIONS_KEY_RANGE_INSTANT (baseTime+50000 to baseTime+350000 = 6 sessions in reverse key order)
+            idx = assertRangeResults(results, idx,
+                new String[]{
+                    "user7:700",
+                    "user6:601",
+                    "user5:500",
+                    "user4:400",
+                    "user3:300",
+                    "user2:201"
+                },
+                "BACKWARD_FIND_SESSIONS_KEY_RANGE_INSTANT");
 
             // Verify REMOVE user3
             assertEquals("user3", results.get(idx).key().get("userId").toString());
@@ -693,6 +792,22 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 case "BACKWARD_FIND_SESSIONS_KEY_RANGE":
                     handleBackwardFindSessionsKeyRange(record);
                     break;
+                // Instant variants
+                case "FETCH_SESSION_SINGLE_INSTANT":
+                    handleFetchSessionInstant(record);
+                    break;
+                case "FIND_SESSIONS_SINGLE_KEY_INSTANT":
+                    handleFindSessionsSingleKeyInstant(record);
+                    break;
+                case "FIND_SESSIONS_KEY_RANGE_INSTANT":
+                    handleFindSessionsKeyRangeInstant(record, "user3", "user5");
+                    break;
+                case "BACKWARD_FIND_SESSIONS_SINGLE_KEY_INSTANT":
+                    handleBackwardFindSessionsSingleKeyInstant(record);
+                    break;
+                case "BACKWARD_FIND_SESSIONS_KEY_RANGE_INSTANT":
+                    handleBackwardFindSessionsKeyRangeInstant(record);
+                    break;
                 // findSessions(earliestSessionEndTime, latestSessionEndTime) - find ALL sessions by time only
                 case "FIND_SESSIONS_TIME_RANGE_ALL":
                     handleFindSessionsTimeRangeAll(record);
@@ -947,6 +1062,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         private void handleBackwardFetchKeyRange(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.backwardFetch(null, null)) {
+
                 forwardAll(iter, record);
             }
         }
@@ -957,6 +1073,81 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         private void handleBackwardFindSessionsKeyRange(Record<GenericRecord, GenericRecord> record) {
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.backwardFindSessions(null, null, 0L, Long.MAX_VALUE)) {
+                forwardAll(iter, record);
+            }
+        }
+
+        /**
+         * fetchSession(key, Instant, Instant) - Fetch specific session using Instant.
+         */
+        private void handleFetchSessionInstant(Record<GenericRecord, GenericRecord> record) {
+            AggregationWithHeaders<GenericRecord> result = store.fetchSession(
+                record.key(), Instant.ofEpochMilli(record.timestamp()), Instant.ofEpochMilli(record.timestamp()));
+            if (result != null && result.aggregation() != null) {
+                context.forward(new Record<>(
+                    record.key(), result.aggregation(), record.timestamp(), result.headers()));
+            }
+        }
+
+        /**
+         * findSessions(key, Instant, Instant) - Find sessions for single key using Instant.
+         * Time range: baseTime to baseTime+100000 -> should return user1:100, user1:101 (2 sessions)
+         */
+        private void handleFindSessionsSingleKeyInstant(Record<GenericRecord, GenericRecord> record) {
+            long baseTime = record.timestamp();
+            try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
+                     store.findSessions(record.key(), Instant.ofEpochMilli(baseTime), Instant.ofEpochMilli(baseTime + 100000))) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> kv = iter.next();
+                    if (kv.value != null && kv.value.aggregation() != null) {
+                        context.forward(new Record<>(
+                            record.key(), kv.value.aggregation(), record.timestamp(), kv.value.headers()));
+                    }
+                }
+            }
+        }
+
+        /**
+         * findSessions(keyFrom, keyTo, Instant, Instant) - Find sessions for key range using Instant.
+         * Time range: baseTime+100000 to baseTime+250000 -> should return user3:300, user4:400, user5:500 (3 sessions)
+         */
+        private void handleFindSessionsKeyRangeInstant(Record<GenericRecord, GenericRecord> record, String fromUser, String toUser) {
+            long baseTime = record.timestamp();
+            GenericRecord keyFrom = createKeyRecord(fromUser);
+            GenericRecord keyTo = createKeyRecord(toUser);
+            try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
+                     store.findSessions(keyFrom, keyTo, Instant.ofEpochMilli(baseTime + 100000), Instant.ofEpochMilli(baseTime + 250000))) {
+                forwardAll(iter, record);
+            }
+        }
+
+        /**
+         * backwardFindSessions(key, Instant, Instant) - Find sessions for single key in reverse using Instant.
+         * Time range: baseTime to baseTime+600000 -> should return user1:102, user1:101, user1:100 (3 sessions in reverse)
+         */
+        private void handleBackwardFindSessionsSingleKeyInstant(Record<GenericRecord, GenericRecord> record) {
+            long baseTime = record.timestamp();
+            try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
+                     store.backwardFindSessions(record.key(), Instant.ofEpochMilli(baseTime), Instant.ofEpochMilli(baseTime + 600000))) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> kv = iter.next();
+                    if (kv.value != null && kv.value.aggregation() != null) {
+                        context.forward(new Record<>(
+                            record.key(), kv.value.aggregation(), record.timestamp(), kv.value.headers()));
+                    }
+                }
+            }
+        }
+
+        /**
+         * backwardFindSessions(keyFrom, keyTo, Instant, Instant) - Find sessions for key range in reverse using Instant.
+         * Time range: baseTime+50000 to baseTime+350000 -> should return 6 sessions in reverse key order
+         * (user7:700, user6:601, user5:500, user4:400, user3:300, user2:201)
+         */
+        private void handleBackwardFindSessionsKeyRangeInstant(Record<GenericRecord, GenericRecord> record) {
+            long baseTime = record.timestamp();
+            try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
+                     store.backwardFindSessions(null, null, Instant.ofEpochMilli(baseTime + 50000), Instant.ofEpochMilli(baseTime + 350000))) {
                 forwardAll(iter, record);
             }
         }

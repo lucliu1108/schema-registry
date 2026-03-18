@@ -122,7 +122,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
     }
 
     @Test
-    public void shouldPerformWindowedOperationsWithHeaders() throws Exception {
+    public void shouldPerformAllStoreOperationsWithHeaders() throws Exception {
         createTopics(INPUT_TOPIC, OUTPUT_TOPIC);
 
         GenericAvroSerde keySerde = createKeySerde();
@@ -160,29 +160,50 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                 // FETCH at t=10min - should return from window 10-15min
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 600000L, event1Key, createValue(0L, "FETCH"))).get();
 
-                // FETCH_RANGE for event-1 from 4-11min - should return 2 windows (5-10min, 10-15min)
+                // FETCH_RANGE for event-1 from 4-11min - should return 2 windows (Instant)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "FETCH_RANGE_1"))).get();
+                // FETCH_RANGE for event-1 from 4-11min - should return 2 windows (long)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "FETCH_RANGE_1_LONG"))).get();
 
-                // FETCH_RANGE for event-2 from 6-11min - should return 1 windows (10-15min)
+                // FETCH_RANGE for event-2 from 6-11min - should return 1 window (Instant)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event2Key, createValue(0L, "FETCH_RANGE_2"))).get();
+                // FETCH_RANGE for event-2 from 6-11min - should return 1 window (long)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event2Key, createValue(0L, "FETCH_RANGE_2_LONG"))).get();
 
-                // BACKWARD_FETCH for event-1 from 1-9min - should return 2 windows in reverse
+                // BACKWARD_FETCH for event-1 from 4-11min - should return 2 windows in reverse (Instant)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "BACKWARD_FETCH"))).get();
+                // BACKWARD_FETCH for event-1 from 4-11min - should return 2 windows in reverse (long)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, event1Key, createValue(0L, "BACKWARD_FETCH_LONG"))).get();
 
-                // FETCH_ALL from 3-12min - should return 5 entries
+                // FETCH_ALL from 3-12min - should return 5 entries (Instant)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "FETCH_ALL"))).get();
+                // FETCH_ALL from 3-12min - should return 5 entries (long)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "FETCH_ALL_LONG"))).get();
 
-                // BACKWARD_FETCH_ALL from 5-15min - should return 5 entries in reverse
+                // BACKWARD_FETCH_ALL from 5-15min - should return 5 entries in reverse (Instant)
                 producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "BACKWARD_FETCH_ALL"))).get();
+                // BACKWARD_FETCH_ALL from 5-15min - should return 5 entries in reverse (long)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "BACKWARD_FETCH_ALL_LONG"))).get();
+
+                // FETCH_KEY_RANGE from event-1 to event-2, 4-11min - should return 4 entries (Instant)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "FETCH_KEY_RANGE"))).get();
+                // FETCH_KEY_RANGE from event-1 to event-2, 4-11min - should return 4 entries (long)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "FETCH_KEY_RANGE_LONG"))).get();
+
+                // BACKWARD_FETCH_KEY_RANGE from event-1 to event-2, 5-11min - should return 4 entries in reverse (Instant)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "BACKWARD_FETCH_KEY_RANGE"))).get();
+                // BACKWARD_FETCH_KEY_RANGE from event-1 to event-2, 5-11min - should return 4 entries in reverse (long)
+                producer.send(new ProducerRecord<>(INPUT_TOPIC, null, 0L, createKey("trigger"), createValue(0L, "BACKWARD_FETCH_KEY_RANGE_LONG"))).get();
 
                 producer.flush();
             }
 
-            // 8 PUT + 2 FETCH + 2 FETCH_RANGE_1 + 1 FETCH_RANGE_2 + 1 BACKWARD_FETCH + 5 FETCH_ALL + 5 BACKWARD_FETCH_ALL = 24
+            // 8 PUT + 2 FETCH + (2+2) FETCH_RANGE_1 + (1+1) FETCH_RANGE_2 + (2+2) BACKWARD_FETCH
+            // + (5+5) FETCH_ALL + (5+5) BACKWARD_FETCH_ALL + (4+4) FETCH_KEY_RANGE + (4+4) BACKWARD_FETCH_KEY_RANGE = 56
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(OUTPUT_TOPIC, "window-store-test-consumer", 24);
+                consumeRecords(OUTPUT_TOPIC, "window-store-test-consumer", 56);
 
-            assertEquals(24, results.size(), "Should have 24 output records");
+            assertEquals(56, results.size(), "Should have 56 output records");
 
             int idx = 0;
 
@@ -232,69 +253,203 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             assertEquals(60L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "FETCH t=10min");
 
-            // Verify FETCH_RANGE for event-1 from 4-11min (2 windows: 5-10min, 10-15min in order)
+            // Verify FETCH_RANGE_1 for event-1 from 4-11min (Instant - 2 windows)
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
             assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE window 5-10min");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_1 Instant window 5-10min");
 
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
             assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE window 10-15min");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_1 Instant window 10-15min");
 
-            // Verify FETCH_RANGE for event-2 from 6-11min (1 window: 10-15min)
+            // Verify FETCH_RANGE_1_LONG for event-1 from 4-11min (long - 2 windows)
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_1_LONG window 5-10min");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_1_LONG window 10-15min");
+
+            // Verify FETCH_RANGE_2 for event-2 from 6-11min (Instant - 1 window)
             assertEquals("event-2", results.get(idx).key().get("eventId").toString());
             assertEquals(70L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE window 10-15min");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_2 Instant window 10-15min");
 
-            // Verify BACKWARD_FETCH for event-1 from 1-9min (2 windows in reverse: 5-10min, 0-5min)
+            // Verify FETCH_RANGE_2_LONG for event-2 from 6-11min (long - 1 window)
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_2_LONG window 10-15min");
+
+            // Verify BACKWARD_FETCH for event-1 from 4-11min (Instant - 2 windows in reverse)
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH Instant window 10-15min");
+
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
             assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH window 5-10min");
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH Instant window 5-10min");
 
-            // Verify FETCH_ALL from 3-12min (5 entries)
-            // Order: key-first (lexicographic), then timestamp within each key
-            // event-1:30, event-1:60, event-2:40, event-2:70, event-3:50
+            // Verify BACKWARD_FETCH_LONG for event-1 from 4-11min (long - 2 windows in reverse)
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_LONG window 10-15min");
+
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
             assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL event-1:30");
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_LONG window 5-10min");
+
+            // Verify FETCH_ALL from 3-12min (Instant - 5 entries)
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL Instant event-1:30");
 
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
             assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL event-1:60");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL Instant event-1:60");
 
             assertEquals("event-2", results.get(idx).key().get("eventId").toString());
             assertEquals(40L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL event-2:40");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL Instant event-2:40");
 
             assertEquals("event-2", results.get(idx).key().get("eventId").toString());
             assertEquals(70L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL event-2:70");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL Instant event-2:70");
 
             assertEquals("event-3", results.get(idx).key().get("eventId").toString());
             assertEquals(50L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL event-3:50");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL Instant event-3:50");
 
-            // Verify BACKWARD_FETCH_ALL from 5-15min (5 entries in reverse order)
-            // event-3:50, event-2:70, event-2:40, event-1:60, event-1:30
-            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
-            assertEquals(50L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL event-3:50");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(70L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL event-2:70");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(40L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL event-2:40");
+            // Verify FETCH_ALL_LONG from 3-12min (long - 5 entries)
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-1:30");
 
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
             assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL event-1:60");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-1:60");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(40L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-2:40");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-2:70");
+
+            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
+            assertEquals(50L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-3:50");
+
+            // Verify BACKWARD_FETCH_ALL from 5-15min (Instant - 5 entries in reverse)
+            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
+            assertEquals(50L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL Instant event-3:50");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL Instant event-2:70");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(40L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL Instant event-2:40");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL Instant event-1:60");
 
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
             assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL event-1:30");
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL Instant event-1:30");
+
+            // Verify BACKWARD_FETCH_ALL_LONG from 5-15min (long - 5 entries in reverse)
+            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
+            assertEquals(50L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-3:50");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-2:70");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(40L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-2:40");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-1:60");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-1:30");
+
+            // Verify FETCH_KEY_RANGE from event-1 to event-2 (Instant - 4 entries)
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE Instant event-1:30");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE Instant event-1:60");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(40L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE Instant event-2:40");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE Instant event-2:70");
+
+            // Verify FETCH_KEY_RANGE_LONG from event-1 to event-2 (long - 4 entries)
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE_LONG event-1:30");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE_LONG event-1:60");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(40L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE_LONG event-2:40");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "FETCH_KEY_RANGE_LONG event-2:70");
+
+            // Verify BACKWARD_FETCH_KEY_RANGE from event-1 to event-2 (Instant - 4 entries in reverse)
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE Instant event-2:70");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(40L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE Instant event-2:40");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE Instant event-1:60");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE Instant event-1:30");
+
+            // Verify BACKWARD_FETCH_KEY_RANGE_LONG from event-1 to event-2 (long - 4 entries in reverse)
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(70L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE_LONG event-2:70");
+
+            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
+            assertEquals(40L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE_LONG event-2:40");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(60L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE_LONG event-1:60");
+
+            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
+            assertEquals(30L, results.get(idx).value().get("count"));
+            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_KEY_RANGE_LONG event-1:30");
 
             ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
                 streams.store(
@@ -717,192 +872,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
     }
 
     /**
-     * Test fetch with long timestamp variant (vs Instant).
-     */
-    @Test
-    public void shouldFetchWithLongTimestamp() throws Exception {
-        String inputTopic = "fetch-long-input";
-        String outputTopic = "fetch-long-output";
-        String storeName = "fetch-long-store";
-
-        createTopics(inputTopic, outputTopic);
-
-        GenericAvroSerde keySerde = createKeySerde();
-        GenericAvroSerde valueSerde = createValueSerde();
-
-        StreamsBuilder builder = new StreamsBuilder();
-        builder
-            .addStateStore(
-                Stores.timestampedWindowStoreWithHeadersBuilder(
-                    Stores.persistentTimestampedWindowStoreWithHeaders(
-                        storeName, RETENTION_PERIOD, WINDOW_SIZE, false),
-                    keySerde,
-                    valueSerde))
-            .stream(inputTopic, Consumed.with(keySerde, valueSerde))
-            .process(() -> new FetchLongProcessor(storeName), storeName)
-            .to(outputTopic, Produced.with(keySerde, valueSerde));
-
-        KafkaStreams streams = null;
-        try {
-            streams = startStreamsAndAwaitRunning(builder.build(), "fetch-long-integration-test");
-
-            GenericRecord event1Key = createKey("event-1");
-            GenericRecord event2Key = createKey("event-2");
-            GenericRecord event3Key = createKey("event-3");
-
-            try (KafkaProducer<GenericRecord, GenericRecord> producer =
-                     new KafkaProducer<>(createProducerProps())) {
-
-                // Send PUT records to set up store state
-                sendWindowedPutRecords(producer, inputTopic, event1Key, event2Key, event3Key);
-
-                // FETCH_LONG at t=8min for event-3 - should return event-3:50 from window 5-10min
-                producer.send(new ProducerRecord<>(inputTopic, null, 480000L, event3Key, createValue(0L, "FETCH_LONG"))).get();
-
-                // FETCH_LONG at t=10min - should return from window 10-15min
-                producer.send(new ProducerRecord<>(inputTopic, null, 600000L, event1Key, createValue(0L, "FETCH_LONG"))).get();
-
-                // FETCH_RANGE_LONG_1 for event-1 from 4-11min - should return 2 windows (5-10min, 10-15min)
-                producer.send(new ProducerRecord<>(inputTopic, null, 0L, event1Key, createValue(0L, "FETCH_RANGE_LONG_1"))).get();
-
-                // FETCH_RANGE_LONG_2 for event-2 from 6-11min - should return 1 window (10-15min)
-                producer.send(new ProducerRecord<>(inputTopic, null, 0L, event2Key, createValue(0L, "FETCH_RANGE_LONG_2"))).get();
-
-                // BACKWARD_FETCH_LONG for event-1 from 1-9min - should return 2 windows in reverse
-                producer.send(new ProducerRecord<>(inputTopic, null, 0L, event1Key, createValue(0L, "BACKWARD_FETCH_LONG"))).get();
-
-                // FETCH_ALL_LONG from 3-12min - should return 5 entries
-                producer.send(new ProducerRecord<>(inputTopic, null, 0L, createKey("trigger"), createValue(0L, "FETCH_ALL_LONG"))).get();
-
-                // BACKWARD_FETCH_ALL_LONG from 5-15min - should return 5 entries in reverse
-                producer.send(new ProducerRecord<>(inputTopic, null, 0L, createKey("trigger"), createValue(0L, "BACKWARD_FETCH_ALL_LONG"))).get();
-
-                producer.flush();
-            }
-
-            // 8 PUT + 2 FETCH_LONG + 2 FETCH_RANGE_LONG_1 + 1 FETCH_RANGE_LONG_2 + 1 BACKWARD_FETCH_LONG + 5 FETCH_ALL_LONG + 5 BACKWARD_FETCH_ALL_LONG = 24
-            List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(outputTopic, "fetch-long-test-consumer", 24);
-
-            assertEquals(24, results.size(), "Should have 24 output records");
-
-            int idx = 0;
-
-            // Verify 8 PUTs
-            // Window 0-5min
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(10L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-1 window 0-5min");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(20L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-2 window 0-5min");
-
-            // Window 5-10min
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-1 window 5-10min (boundary)");
-
-            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
-            assertEquals(35L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-3 window 5-10min");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(40L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-2 window 5-10min");
-
-            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
-            assertEquals(50L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-3 window 5-10min");
-
-            // Window 10-15min
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-1 window 10-15min (boundary)");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(70L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "PUT event-2 window 10-15min");
-
-            // Verify FETCH_LONG at t=8min for event-3 - should return event-3 from window 5-10min (count=50)
-            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
-            assertEquals(50L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_LONG t=5min");
-
-            // Verify FETCH_LONG at t=10min for event-1 - should return event-1 from window 10-15min (count=60)
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_LONG t=10min");
-
-            // Verify FETCH_RANGE_LONG_1 for event-1 from 4-11min (2 windows: 5-10min, 10-15min in order)
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_LONG_1 window 5-10min");
-
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_LONG_1 window 10-15min");
-
-            // Verify FETCH_RANGE_LONG_2 for event-2 from 6-11min (1 window: 10-15min)
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(70L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_RANGE_LONG_2 window 10-15min");
-
-            // Verify BACKWARD_FETCH_LONG for event-1 from 1-9min (2 windows in reverse: 5-10min, 0-5min)
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_LONG window 5-10min");
-
-            // Verify FETCH_ALL_LONG from 3-12min (5 entries)
-            // event-1:30, event-1:60, event-2:40, event-2:70, event-3:50
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-1:30");
-
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-1:60");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(40L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-2:40");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(70L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-2:70");
-
-            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
-            assertEquals(50L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH_ALL_LONG event-3:50");
-
-            // Verify BACKWARD_FETCH_ALL_LONG from 5-15min (5 entries in reverse)
-            // Reverse order: event-3:50, event-2:70, event-2:40, event-1:60, event-1:30
-            assertEquals("event-3", results.get(idx).key().get("eventId").toString());
-            assertEquals(50L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-3:50");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(70L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-2:70");
-
-            assertEquals("event-2", results.get(idx).key().get("eventId").toString());
-            assertEquals(40L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-2:40");
-
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(60L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-1:60");
-
-            assertEquals("event-1", results.get(idx).key().get("eventId").toString());
-            assertEquals(30L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "BACKWARD_FETCH_ALL_LONG event-1:30");
-
-        } finally {
-            closeStreams(streams);
-        }
-    }
-
-    /**
      * Processor for testing delete with null value.
      */
     private static class DeleteTestProcessor
@@ -1074,159 +1043,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
     }
 
     /**
-     * Processor for testing fetch with long timestamp variants.
-     */
-    private static class FetchLongProcessor
-        implements Processor<GenericRecord, GenericRecord, GenericRecord, GenericRecord> {
-
-        private final String storeName;
-        private ProcessorContext<GenericRecord, GenericRecord> context;
-        private TimestampedWindowStoreWithHeaders<GenericRecord, GenericRecord> store;
-
-        public FetchLongProcessor(String storeName) {
-            this.storeName = storeName;
-        }
-
-        @Override
-        public void init(ProcessorContext<GenericRecord, GenericRecord> context) {
-            this.context = context;
-            this.store = context.getStateStore(storeName);
-        }
-
-        @Override
-        public void process(Record<GenericRecord, GenericRecord> record) {
-            String operation = record.value().get("operation").toString();
-            long windowStart = (record.timestamp() / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
-
-            switch (operation) {
-                case "PUT":
-                    handlePut(record, windowStart);
-                    break;
-                case "FETCH_LONG":
-                    handleFetchLong(record, windowStart);
-                    break;
-                case "FETCH_RANGE_LONG_1":
-                    handleFetchRangeLong1(record);
-                    break;
-                case "FETCH_RANGE_LONG_2":
-                    handleFetchRangeLong2(record);
-                    break;
-                case "BACKWARD_FETCH_LONG":
-                    handleBackwardFetchLong(record);
-                    break;
-                case "FETCH_ALL_LONG":
-                    handleFetchAllLong(record);
-                    break;
-                case "BACKWARD_FETCH_ALL_LONG":
-                    handleBackwardFetchAllLong(record);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unknown operation: " + operation);
-            }
-        }
-
-        private void handlePut(Record<GenericRecord, GenericRecord> record, long windowStart) {
-            ValueTimestampHeaders<GenericRecord> toStore =
-                ValueTimestampHeaders.make(record.value(), record.timestamp(), record.headers());
-            store.put(record.key(), toStore, windowStart);
-
-            ValueTimestampHeaders<GenericRecord> stored = store.fetch(record.key(), windowStart);
-            context.forward(new Record<>(
-                record.key(), stored.value(), stored.timestamp(), stored.headers()));
-        }
-
-        private void handleFetchLong(Record<GenericRecord, GenericRecord> record, long windowStart) {
-            // Use long timestamp variant
-            ValueTimestampHeaders<GenericRecord> fetched = store.fetch(record.key(), windowStart);
-            if (fetched != null) {
-                context.forward(new Record<>(
-                    record.key(), fetched.value(), fetched.timestamp(), fetched.headers()));
-            }
-        }
-
-        /**
-         * Fetch range for event-1 from 4-11min (240000ms to 660000ms).
-         * Should return 2 windows: 5-10min (start=300000) and 10-15min (start=600000).
-         */
-        private void handleFetchRangeLong1(Record<GenericRecord, GenericRecord> record) {
-            // Use long timestamp variant for range fetch
-            try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iter =
-                     store.fetch(record.key(), 240000L, 660000L)) {
-                while (iter.hasNext()) {
-                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
-                    context.forward(new Record<>(
-                        record.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
-                }
-            }
-        }
-
-        /**
-         * Fetch range for event-2 from 6-11min (360000ms to 660000ms).
-         * Should return 1 window: 10-15min (start=600000).
-         */
-        private void handleFetchRangeLong2(Record<GenericRecord, GenericRecord> record) {
-            // Use long timestamp variant for range fetch
-            try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iter =
-                     store.fetch(record.key(), 360000L, 660000L)) {
-                while (iter.hasNext()) {
-                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
-                    context.forward(new Record<>(
-                        record.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
-                }
-            }
-        }
-
-        /**
-         * Backward fetch for event-1 from 1-9min (60000ms to 540000ms).
-         * Should return 2 windows in reverse: 5-10min (start=300000), 0-5min (start=0).
-         */
-        private void handleBackwardFetchLong(Record<GenericRecord, GenericRecord> record) {
-            // Use long timestamp variant for backward fetch
-            try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iter =
-                     store.backwardFetch(record.key(), 60000L, 540000L)) {
-                while (iter.hasNext()) {
-                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
-                    context.forward(new Record<>(
-                        record.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
-                }
-            }
-        }
-
-        /**
-         * Fetch all entries in the store from 3-12min (180000ms to 720000ms).
-         * Should return 5 entries: window 5-10min (3 entries) + window 10-15min (2 entries).
-         * Excludes window 0-5min.
-         */
-        private void handleFetchAllLong(Record<GenericRecord, GenericRecord> record) {
-            // Use long timestamp variant for fetchAll
-            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
-                     store.fetchAll(180000L, 720000L)) {
-                while (iter.hasNext()) {
-                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
-                    context.forward(new Record<>(
-                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
-                }
-            }
-        }
-
-        /**
-         * Backward fetch all entries in the store from 5-15min (300000ms to 900000ms).
-         * Should return 5 entries in reverse order.
-         */
-        private void handleBackwardFetchAllLong(Record<GenericRecord, GenericRecord> record) {
-            // Use long timestamp variant for backwardFetchAll
-            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
-                     store.backwardFetchAll(300000L, 900000L)) {
-                while (iter.hasNext()) {
-                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
-                    context.forward(new Record<>(
-                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
-                }
-            }
-        }
-    }
-
-    /**
      * Processor that aggregates events in time windows using TimestampedWindowStoreWithHeaders.
      */
     private static class WindowedEventProcessor
@@ -1257,21 +1073,50 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                 case "FETCH":
                     handleFetch(record);
                     break;
+                // Instant variants
                 case "FETCH_RANGE_1":
                     handleFetchRange1(record);
                     break;
                 case "FETCH_RANGE_2":
-                     handleFetchRange2(record);
-                     break;
-                case "FETCH_ALL":
-                    handleFetchAll(record);
+                    handleFetchRange2(record);
                     break;
                 case "BACKWARD_FETCH":
                     handleBackwardFetch(record);
                     break;
+                case "FETCH_ALL":
+                    handleFetchAll(record);
+                    break;
                 case "BACKWARD_FETCH_ALL":
-                     handleBackwardFetchAll(record);
-                     break;
+                    handleBackwardFetchAll(record);
+                    break;
+                case "FETCH_KEY_RANGE":
+                    handleFetchKeyRange(record);
+                    break;
+                case "BACKWARD_FETCH_KEY_RANGE":
+                    handleBackwardFetchKeyRange(record);
+                    break;
+                // Long timestamp variants
+                case "FETCH_RANGE_1_LONG":
+                    handleFetchRange1Long(record);
+                    break;
+                case "FETCH_RANGE_2_LONG":
+                    handleFetchRange2Long(record);
+                    break;
+                case "BACKWARD_FETCH_LONG":
+                    handleBackwardFetchLong(record);
+                    break;
+                case "FETCH_ALL_LONG":
+                    handleFetchAllLong(record);
+                    break;
+                case "BACKWARD_FETCH_ALL_LONG":
+                    handleBackwardFetchAllLong(record);
+                    break;
+                case "FETCH_KEY_RANGE_LONG":
+                    handleFetchKeyRangeLong(record);
+                    break;
+                case "BACKWARD_FETCH_KEY_RANGE_LONG":
+                    handleBackwardFetchKeyRangeLong(record);
+                    break;
                 default:
                     throw new IllegalArgumentException("Unknown operation: " + operation);
             }
@@ -1349,12 +1194,12 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         }
 
         /**
-         * Fetch windows for event-1 in reverse order from 1-9min (60000ms to 540000ms).
-         * Should only return event-1 from window 5-10min (start=300000).
+         * Fetch windows for event-1 in reverse order from 4-11min (240000ms to 660000ms).
+         * Should return 2 windows in reverse: 10-15min (start=600000), 5-10min (start=300000).
          */
         private void handleBackwardFetch(Record<GenericRecord, GenericRecord> record) {
             try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iterator =
-                     store.backwardFetch(record.key(), Instant.ofEpochMilli(60000L), Instant.ofEpochMilli(540000L))) {
+                     store.backwardFetch(record.key(), Instant.ofEpochMilli(240000L), Instant.ofEpochMilli(660000L))) {
                 while (iterator.hasNext()) {
                     KeyValue<Long, ValueTimestampHeaders<GenericRecord>> entry = iterator.next();
                     ValueTimestampHeaders<GenericRecord> value = entry.value;
@@ -1376,6 +1221,160 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                     ValueTimestampHeaders<GenericRecord> value = entry.value;
                     context.forward(new Record<>(
                         entry.key.key(), value.value(), value.timestamp(), value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Fetch key range from event-1 to event-2, 4-11min (Instant variant).
+         * Should return 4 entries: event-1:30, event-1:60, event-2:40, event-2:70.
+         */
+        private void handleFetchKeyRange(Record<GenericRecord, GenericRecord> record) {
+            Schema keySchema = new Schema.Parser().parse(KEY_SCHEMA_JSON);
+            GenericRecord event1Key = new GenericData.Record(keySchema);
+            event1Key.put("eventId", "event-1");
+            GenericRecord event2Key = new GenericData.Record(keySchema);
+            event2Key.put("eventId", "event-2");
+
+            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.fetch(event1Key, event2Key, Instant.ofEpochMilli(240000L), Instant.ofEpochMilli(660000L))) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Backward fetch key range from event-1 to event-2, 5-11min (Instant variant).
+         * Should return 4 entries in reverse: event-2:70, event-2:40, event-1:60, event-1:30.
+         */
+        private void handleBackwardFetchKeyRange(Record<GenericRecord, GenericRecord> record) {
+            Schema keySchema = new Schema.Parser().parse(KEY_SCHEMA_JSON);
+            GenericRecord event1Key = new GenericData.Record(keySchema);
+            event1Key.put("eventId", "event-1");
+            GenericRecord event2Key = new GenericData.Record(keySchema);
+            event2Key.put("eventId", "event-2");
+
+            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.backwardFetch(event1Key, event2Key, Instant.ofEpochMilli(300000L), Instant.ofEpochMilli(660000L))) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        // ==================== Long timestamp variants ====================
+
+        /**
+         * Fetch range for event-1 from 4-11min (long timestamp variant).
+         */
+        private void handleFetchRange1Long(Record<GenericRecord, GenericRecord> record) {
+            try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iter =
+                     store.fetch(record.key(), 240000L, 660000L)) {
+                while (iter.hasNext()) {
+                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        record.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Fetch range for event-2 from 6-11min (long timestamp variant).
+         */
+        private void handleFetchRange2Long(Record<GenericRecord, GenericRecord> record) {
+            try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iter =
+                     store.fetch(record.key(), 360000L, 660000L)) {
+                while (iter.hasNext()) {
+                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        record.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Backward fetch for event-1 from 4-11min (long timestamp variant).
+         */
+        private void handleBackwardFetchLong(Record<GenericRecord, GenericRecord> record) {
+            try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> iter =
+                     store.backwardFetch(record.key(), 240000L, 660000L)) {
+                while (iter.hasNext()) {
+                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        record.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Fetch all from 3-12min (long timestamp variant).
+         */
+        private void handleFetchAllLong(Record<GenericRecord, GenericRecord> record) {
+            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.fetchAll(180000L, 720000L)) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Backward fetch all from 5-15min (long timestamp variant).
+         */
+        private void handleBackwardFetchAllLong(Record<GenericRecord, GenericRecord> record) {
+            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.backwardFetchAll(300000L, 900000L)) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Fetch key range from event-1 to event-2, 4-11min (long timestamp variant).
+         */
+        private void handleFetchKeyRangeLong(Record<GenericRecord, GenericRecord> record) {
+            Schema keySchema = new Schema.Parser().parse(KEY_SCHEMA_JSON);
+            GenericRecord event1Key = new GenericData.Record(keySchema);
+            event1Key.put("eventId", "event-1");
+            GenericRecord event2Key = new GenericData.Record(keySchema);
+            event2Key.put("eventId", "event-2");
+
+            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.fetch(event1Key, event2Key, 240000L, 660000L)) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
+                }
+            }
+        }
+
+        /**
+         * Backward fetch key range from event-1 to event-2, 5-11min (long timestamp variant).
+         */
+        private void handleBackwardFetchKeyRangeLong(Record<GenericRecord, GenericRecord> record) {
+            Schema keySchema = new Schema.Parser().parse(KEY_SCHEMA_JSON);
+            GenericRecord event1Key = new GenericData.Record(keySchema);
+            event1Key.put("eventId", "event-1");
+            GenericRecord event2Key = new GenericData.Record(keySchema);
+            event2Key.put("eventId", "event-2");
+
+            try (KeyValueIterator<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.backwardFetch(event1Key, event2Key, 300000L, 660000L)) {
+                while (iter.hasNext()) {
+                    KeyValue<Windowed<GenericRecord>, ValueTimestampHeaders<GenericRecord>> kv = iter.next();
+                    context.forward(new Record<>(
+                        kv.key.key(), kv.value.value(), kv.value.timestamp(), kv.value.headers()));
                 }
             }
         }
