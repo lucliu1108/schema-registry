@@ -62,7 +62,7 @@ public class AdminAssociatedNameStrategy extends AssociatedNameStrategy {
           null, "required for auto-discovering Kafka cluster ID");
     }
 
-    try (AdminClient adminClient = AdminClient.create((Map<String, Object>) configs)) {
+    try (AdminClient adminClient = createAdminClient(configs)) {
       String clusterId = adminClient.describeCluster().clusterId()
           .get(DEFAULT_TIMEOUT_SECS, TimeUnit.SECONDS);
       log.info("Auto-discovered Kafka cluster ID: {}", clusterId);
@@ -80,5 +80,17 @@ public class AdminAssociatedNameStrategy extends AssociatedNameStrategy {
       throw new ConfigException("Failed to create AdminClient for cluster ID discovery: "
           + e.getMessage());
     }
+  }
+
+  /**
+   * Creates an {@link AdminClient} from the provided configs.
+   * Override this method to provide a custom or mock AdminClient for testing.
+   *
+   * @param configs the configuration properties
+   * @return an AdminClient instance
+   */
+  @SuppressWarnings("unchecked")
+  protected AdminClient createAdminClient(Map<String, ?> configs) {
+    return AdminClient.create((Map<String, Object>) configs);
   }
 }

@@ -18,10 +18,16 @@ package io.confluent.kafka.serializers.subject;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 import io.confluent.kafka.schemaregistry.client.MockSchemaRegistryClient;
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.DescribeClusterResult;
+import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.config.ConfigException;
 import org.junit.Test;
 
@@ -59,7 +65,6 @@ public class AdminAssociatedNameStrategyTest {
 
   @Test
   public void testExplicitClusterIdBypassesAdminClient() {
-    // Even with invalid bootstrap.servers, explicit cluster ID should work
     AdminAssociatedNameStrategy strategy = new AdminAssociatedNameStrategy();
     strategy.setSchemaRegistryClient(new MockSchemaRegistryClient());
     Map<String, Object> configs = new HashMap<>();
@@ -68,5 +73,27 @@ public class AdminAssociatedNameStrategyTest {
     strategy.configure(configs);
 
     assertEquals("explicit-cluster-id", strategy.getKafkaClusterId());
+  }
+
+  @Test
+  public void testAutoDiscoverClusterIdWithMockAdminClient() {
+    AdminClient mockAdminClient = mock(AdminClient.class);
+    DescribeClusterResult mockResult = mock(DescribeClusterResult.class);
+    when(mockAdminClient.describeCluster()).thenReturn(mockResult);
+    when(mockAdminClient.describeCluster(any())).thenReturn(mockResult);
+    when(mockResult.clusterId()).thenReturn(KafkaFuture.completedFuture("mock-cluster-id"));
+
+    AdminAssociatedNameStrategy strategy = new AdminAssociatedNameStrategy() {
+      @Override
+      protected AdminClient createAdminClient(Map<String, ?> configs) {
+        return mockAdminClient;
+      }
+    };
+    strategy.setSchemaRegistryClient(new MockSchemaRegistryClient());
+    Map<String, Object> configs = new HashMap<>();
+    configs.put("bootstrap.servers", "localhost:9092");
+    strategy.configure(configs);
+
+    assertEquals("mock-cluster-id", strategy.getKafkaClusterId());
   }
 }
