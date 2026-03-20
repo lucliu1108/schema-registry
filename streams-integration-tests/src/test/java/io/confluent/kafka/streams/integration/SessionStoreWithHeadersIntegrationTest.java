@@ -63,6 +63,7 @@ import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.Produced;
 import org.apache.kafka.streams.kstream.Windowed;
+import org.apache.kafka.streams.kstream.internals.SessionWindow;
 import org.apache.kafka.streams.processor.api.Processor;
 import org.apache.kafka.streams.processor.api.ProcessorContext;
 import org.apache.kafka.streams.processor.api.Record;
@@ -895,7 +896,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
          * findSessions(key, earliestSessionEndTime, latestSessionStartTime) - Find sessions for single key with time filter.
          */
         private void handleFindSessionsSingleKeyFirstTwo(Record<GenericRecord, GenericRecord> record) {
-            // Range [0, baseTime+120000] covers only first 2 session
+            // Range [0, baseTime+100000] covers only first 2 session
             try (KeyValueIterator<Windowed<GenericRecord>, AggregationWithHeaders<GenericRecord>> iter =
                      store.findSessions(record.key(), 0L, record.timestamp() + 100000)) {
                 forwardAllSessions(iter, record);
@@ -1195,10 +1196,11 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
             }
         }
 
+        private static final Schema SESSION_KEY_SCHEMA = new Schema.Parser().parse(
+            "{\"type\":\"record\",\"name\":\"SessionKey\",\"namespace\":\"io.confluent.kafka.streams.integration\",\"fields\":[{\"name\":\"userId\",\"type\":\"string\"}]}");
+
         private GenericRecord createKeyRecord(String userId) {
-            Schema keySchema = new Schema.Parser().parse(
-                "{\"type\":\"record\",\"name\":\"SessionKey\",\"namespace\":\"io.confluent.kafka.streams.integration\",\"fields\":[{\"name\":\"userId\",\"type\":\"string\"}]}");
-            GenericRecord key = new GenericData.Record(keySchema);
+            GenericRecord key = new GenericData.Record(SESSION_KEY_SCHEMA);
             key.put("userId", userId);
             return key;
         }
@@ -1506,8 +1508,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                         "Tombstone record should have key schema ID header");
                 }
             }
-            System.out.println("Tombstone count: " + tombstoneCount);
-            assertTrue(tombstoneCount >= 2, "Should have at least 2 tombstone records");
+            assertTrue(tombstoneCount >= 2, "Should have at least 2 tombstone records, but found " + tombstoneCount);
 
         } finally {
             closeStreams(streams);
@@ -1566,7 +1567,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
 
             Windowed<GenericRecord> sessionKey = new Windowed<>(
                 record.key(),
-                new org.apache.kafka.streams.kstream.internals.SessionWindow(record.timestamp(), record.timestamp())
+                new SessionWindow(record.timestamp(), record.timestamp())
             );
 
             AggregationWithHeaders<GenericRecord> toStore =
@@ -1586,7 +1587,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
 
             Windowed<GenericRecord> sessionKey = new Windowed<>(
                 record.key(),
-                new org.apache.kafka.streams.kstream.internals.SessionWindow(record.timestamp(), record.timestamp())
+                new SessionWindow(record.timestamp(), record.timestamp())
             );
 
             AggregationWithHeaders<GenericRecord> existing = store.fetchSession(
