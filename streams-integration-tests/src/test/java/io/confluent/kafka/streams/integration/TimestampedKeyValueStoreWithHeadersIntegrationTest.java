@@ -624,7 +624,6 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             GenericRecord word2Key = createKey("word-2");
             GenericRecord word3Key = createKey("word-3");
 
-            // Use producer WITHOUT header-based schema ID to test changelog header generation
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
 
@@ -781,7 +780,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             String changelogTopic = "delete-integration-test-delete-store-changelog";
 
             List<ConsumerRecord<byte[], byte[]>> changelogRecords =
-                consumeChangelogRecords(changelogTopic, "changelog-consumer", 10);
+                consumeChangelogRecords(changelogTopic, "changelog-consumer", 4);
 
             int tombstoneCount = 0;
             for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
@@ -793,7 +792,6 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                         "Tombstone record should have key schema ID header");
                 }
             }
-            System.out.println("Tombstone count: " + tombstoneCount);
             assertTrue(tombstoneCount >= 4,
                 "Should have at least 4 tombstone records (PUT_NULL word-1, PUT_NULL word-99, PUT_NULL word-3, DELETE word-4)");
 
@@ -1324,8 +1322,16 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             }
         });
         streams.start();
-        assertTrue(startedLatch.await(30, TimeUnit.SECONDS), "KafkaStreams should reach RUNNING state");
-        return streams;
+        boolean running = false;
+        try {
+            running = startedLatch.await(30, TimeUnit.SECONDS);
+            assertTrue(running, "KafkaStreams should reach RUNNING state");
+            return streams;
+        } finally {
+            if (!running) {
+                closeStreams(streams);
+            }
+        }
     }
 
     private void closeStreams(KafkaStreams streams) {
