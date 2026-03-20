@@ -178,26 +178,27 @@ public class AssociatedNameStrategy implements SubjectNameStrategy {
       throws IOException, RestClientException {
     List<Association> associations;
     try {
-      String resolvedTopicId = resolveTopicId(topic);
-      if (resolvedTopicId != null) {
-        associations = client.getAssociationsByResourceId(
-            resolvedTopicId,
-            "topic",
-            Collections.singletonList(isKey ? "key" : "value"),
-            null,
-            0,
-            -1
-        );
-      } else {
-        associations = client.getAssociationsByResourceName(
-            topic,
-            kafkaClusterId != null ? kafkaClusterId : NAMESPACE_WILDCARD,
-            "topic",
-            Collections.singletonList(isKey ? "key" : "value"),
-            null,
-            0,
-            -1
-        );
+      associations = client.getAssociationsByResourceName(
+          topic,
+          kafkaClusterId != null ? kafkaClusterId : NAMESPACE_WILDCARD,
+          "topic",
+          Collections.singletonList(isKey ? "key" : "value"),
+          null,
+          0,
+          -1
+      );
+      if (associations.size() > 1) {
+        String resolvedTopicId = resolveTopicId(topic);
+        if (resolvedTopicId != null) {
+          associations = client.getAssociationsByResourceId(
+              resolvedTopicId,
+              "topic",
+              Collections.singletonList(isKey ? "key" : "value"),
+              null,
+              0,
+              -1
+          );
+        }
       }
     } catch (RestClientException e) {
       if (e.getStatus() == 404) {

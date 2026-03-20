@@ -17,7 +17,6 @@
 package io.confluent.kafka.serializers.subject;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -33,7 +32,6 @@ import org.apache.kafka.clients.admin.DescribeTopicsResult;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Uuid;
-import org.apache.kafka.common.errors.SerializationException;
 import org.junit.Test;
 
 public class AdminAssociatedNameStrategyTest {
@@ -54,18 +52,6 @@ public class AdminAssociatedNameStrategyTest {
   }
 
   @Test
-  public void testNoBootstrapServersThrowsConfigException() {
-    AdminAssociatedNameStrategy strategy = new AdminAssociatedNameStrategy();
-    strategy.setSchemaRegistryClient(new MockSchemaRegistryClient());
-    Map<String, Object> configs = new HashMap<>();
-    configs.put(AssociatedNameStrategy.FALLBACK_TYPE, "NONE");
-    strategy.configure(configs);
-
-    assertThrows(SerializationException.class,
-        () -> strategy.subjectName("my-topic", false, SCHEMA));
-  }
-
-  @Test
   public void testExplicitTopicIdBypassesAdminClient() {
     AdminAssociatedNameStrategy strategy = new AdminAssociatedNameStrategy();
     strategy.setSchemaRegistryClient(new MockSchemaRegistryClient());
@@ -78,8 +64,9 @@ public class AdminAssociatedNameStrategyTest {
   }
 
   @Test
-  public void testAutoDiscoverTopicIdWithMockAdminClient() throws Exception {
+  public void testAutoDiscoverTopicIdDisambiguates() throws Exception {
     Uuid topicUuid = Uuid.randomUuid();
+    Uuid otherTopicUuid = Uuid.randomUuid();
     AdminClient mockAdminClient = mock(AdminClient.class);
     DescribeTopicsResult mockResult = mock(DescribeTopicsResult.class);
     TopicDescription topicDesc = new TopicDescription(
@@ -91,12 +78,22 @@ public class AdminAssociatedNameStrategyTest {
             Collections.singletonMap("my-topic", topicDesc)));
 
     MockSchemaRegistryClient mockClient = new MockSchemaRegistryClient();
-    mockClient.register("associated-subject", SCHEMA);
-    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
-        "my-topic", "my-namespace", topicUuid.toString(), "topic",
+    mockClient.register("correct-subject", SCHEMA);
+    mockClient.register("other-subject", SCHEMA);
+
+    // Create two associations for the same topic name in different namespaces
+    // so getAssociationsByResourceName with wildcard returns >1
+    AssociationCreateOrUpdateRequest request1 = new AssociationCreateOrUpdateRequest(
+        "my-topic", "namespace-1", topicUuid.toString(), "topic",
         Collections.singletonList(new AssociationCreateOrUpdateInfo(
-            "associated-subject", "value", null, null, null, null)));
-    mockClient.createAssociation(request);
+            "correct-subject", "value", null, null, null, null)));
+    mockClient.createAssociation(request1);
+
+    AssociationCreateOrUpdateRequest request2 = new AssociationCreateOrUpdateRequest(
+        "my-topic", "namespace-2", otherTopicUuid.toString(), "topic",
+        Collections.singletonList(new AssociationCreateOrUpdateInfo(
+            "other-subject", "value", null, null, null, null)));
+    mockClient.createAssociation(request2);
 
     AdminAssociatedNameStrategy strategy = new AdminAssociatedNameStrategy() {
       @Override
@@ -110,6 +107,6 @@ public class AdminAssociatedNameStrategyTest {
     configs.put(AssociatedNameStrategy.FALLBACK_TYPE, "NONE");
     strategy.configure(configs);
 
-    assertEquals("associated-subject", strategy.subjectName("my-topic", false, SCHEMA));
+    assertEquals("correct-subject", strategy.subjectName("my-topic", false, SCHEMA));
   }
 }
