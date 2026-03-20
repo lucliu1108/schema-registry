@@ -126,7 +126,6 @@ public class CircularRefSchemaDiffTest {
           () -> SchemaDiff.compare(original.rawSchema(), update.rawSchema()));
       try {
         List<Difference> result = future.get(10, TimeUnit.SECONDS);
-        System.out.println(description + ": completed with " + result.size() + " differences");
       } catch (TimeoutException e) {
         future.cancel(true);
         fail(description + ": SchemaDiff.compare did not terminate within 10 seconds. "
