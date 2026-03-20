@@ -242,10 +242,10 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             assertEquals(70L, results.get(idx).value().get("count"));
             assertSchemaIdHeaders(results.get(idx++), "PUT event-2 window 10-15min");
 
-            // Verify FETCH at t=8min for event-3 - should return event-3 from window 5-10min (count=30)
+            // Verify FETCH at t=8min for event-3 - should return event-3 from window 5-10min (count=50)
             assertEquals("event-3", results.get(idx).key().get("eventId").toString());
             assertEquals(50L, results.get(idx).value().get("count"));
-            assertSchemaIdHeaders(results.get(idx++), "FETCH t=5min");
+            assertSchemaIdHeaders(results.get(idx++), "FETCH t=8min");
 
             // Verify FETCH at t=10min for event-1 - should return event-1 from window 10-15min (count=60)
             assertEquals("event-1", results.get(idx).key().get("eventId").toString());
@@ -783,7 +783,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                         "Tombstone record should have key schema ID header");
                 }
             }
-            System.out.println("Tombstone count: " + tombstoneCount);
             assertTrue(tombstoneCount >= 1, "Should have at least 1 tombstone record");
 
         } finally {
@@ -831,7 +830,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                 // Send PUT records to set up store state
                 sendWindowedPutRecords(producer, inputTopic, event1Key, event2Key, event3Key);
 
-                // Test ALL - iterate all entries (should return 3)
+                // Test ALL - iterate all entries
                 producer.send(new ProducerRecord<>(inputTopic, null, 0L,
                     createKey("trigger"), createValue(0L, "ALL"))).get();
 
@@ -902,8 +901,6 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                     handlePutNull(record, windowStart);
                     break;
                 case "FETCH":
-                case "FETCH_NONEXISTENT":
-                case "FETCH_AFTER_DELETE":
                     handleFetch(record, windowStart);
                     break;
                 default:
@@ -929,13 +926,11 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         private void handleFetch(Record<GenericRecord, GenericRecord> record, long windowStart) {
             ValueTimestampHeaders<GenericRecord> fetched = store.fetch(record.key(), windowStart);
 
-            GenericRecord resultValue = new GenericData.Record(record.value().getSchema());
             if (fetched != null && fetched.value() != null) {
-                resultValue.put("count", fetched.value().get("count"));
-                resultValue.put("operation", "RESULT");
                 context.forward(new Record<>(
                     record.key(), fetched.value(), fetched.timestamp(), fetched.headers()));
             } else {
+                GenericRecord resultValue = new GenericData.Record(record.value().getSchema());
                 resultValue.put("count", -1L);
                 resultValue.put("operation", "NULL_RESULT");
                 context.forward(new Record<>(
@@ -1449,8 +1444,16 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             }
         });
         streams.start();
-        assertTrue(startedLatch.await(30, TimeUnit.SECONDS), "KafkaStreams should reach RUNNING state");
-        return streams;
+        boolean running = false;
+        try {
+            running = startedLatch.await(30, TimeUnit.SECONDS);
+            assertTrue(running, "KafkaStreams should reach RUNNING state");
+            return streams;
+        } finally {
+            if (!running) {
+                closeStreams(streams);
+            }
+        }
     }
 
     private void closeStreams(KafkaStreams streams) {
