@@ -42,7 +42,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 /**
- * Integration tests to verify that X-Exporter-Name header is properly handled
+ * Integration tests to verify that Confluent-Schema-Exporter-Name header is properly handled
  * across DEK Registry endpoints.
  */
 public class RestApiExporterHeaderTest extends ClusterTestHarness {
@@ -83,7 +83,7 @@ public class RestApiExporterHeaderTest extends ClusterTestHarness {
 
     exporterHeaders = new HashMap<>();
     exporterHeaders.put("Content-Type", Versions.SCHEMA_REGISTRY_V1_JSON_WEIGHTED);
-    exporterHeaders.put("X-Exporter-Name", "test-exporter");
+    exporterHeaders.put("Confluent-Schema-Exporter-Name", "test-exporter");
   }
 
   @Test

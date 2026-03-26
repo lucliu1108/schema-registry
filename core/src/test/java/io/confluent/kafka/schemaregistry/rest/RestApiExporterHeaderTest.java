@@ -32,7 +32,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 /**
- * Integration tests to verify that X-Exporter-Name header is properly handled
+ * Integration tests to verify that Confluent-Schema-Exporter-Name header is properly handled
  * across all schema registry endpoints.
  */
 public class RestApiExporterHeaderTest extends ClusterTestHarness {
@@ -46,7 +46,7 @@ public class RestApiExporterHeaderTest extends ClusterTestHarness {
   @Before
   public void setUpHeaders() {
     exporterHeaders = new HashMap<>();
-    exporterHeaders.put("X-Exporter-Name", "test-exporter");
+    exporterHeaders.put("Confluent-Schema-Exporter-Name", "test-exporter");
   }
 
   @After

@@ -106,7 +106,7 @@ public class ModeResource {
           "Whether to force update if setting mode to IMPORT and schemas currently exist")
       @QueryParam("force") boolean force
   ) {
-    String exporterName = headers.getHeaderString("X-Schema-Exporter-Name");
+    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
     if (exporterName != null && !exporterName.isEmpty()) {
       log.info("Request from exporter: {}, updating mode for subject: {}", exporterName, subject);
     }
@@ -250,7 +250,7 @@ public class ModeResource {
       @Context HttpHeaders headers,
       @Parameter(description = "Name of the subject", required = true)
       @PathParam("subject") String subject) {
-    String exporterName = headers.getHeaderString("X-Schema-Exporter-Name");
+    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
     if (exporterName != null && !exporterName.isEmpty()) {
       log.info("Request from exporter: {}, deleting mode for subject: {}", exporterName, subject);
     } else {
