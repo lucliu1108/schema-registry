@@ -44,10 +44,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * A {@link SubjectNameStrategy} that will query schema registry for
- * the associated subject name for the topic.  If a configuration property named
- * "subject.name.strategy.topic.id" is set, its value is used as the resource ID and
- * the query uses {@code getAssociationsByResourceId}.  Otherwise, the topic name is passed
- * as the resource name to schema registry.  If there is a configuration property named
+ * the associated subject name for the topic. If there is a configuration property named
  * "subject.name.strategy.kafka.cluster.id", then its value will be passed as the resource
  * namespace; otherwise the value "-" will be passed as the resource namespace.
  * If more than one subject is returned from the query, an exception will be thrown.
