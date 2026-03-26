@@ -214,7 +214,7 @@ public class AssociatedNameStrategy implements SubjectNameStrategy {
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new ConfigException("Interrupted while auto-discovering topic ID for " + topic);
-    } catch (java.util.concurrent.ExecutionException e) {
+    } catch (ExecutionException e) {
       throw new ConfigException("Failed to auto-discover topic ID for " + topic
           + ": " + e.getCause().getMessage());
     } catch (TimeoutException e) {
