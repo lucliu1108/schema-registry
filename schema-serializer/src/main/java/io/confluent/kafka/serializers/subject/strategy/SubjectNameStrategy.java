@@ -36,7 +36,8 @@ public interface SubjectNameStrategy extends Configurable {
   }
 
   /**
-   * Set the Kafka cluster ID discovered via {@link org.apache.kafka.common.ClusterResourceListener}.
+   * Set the Kafka cluster ID discovered via
+   * {@link org.apache.kafka.common.ClusterResourceListener}.
    */
   default void setKafkaClusterId(String clusterId) {
   }
