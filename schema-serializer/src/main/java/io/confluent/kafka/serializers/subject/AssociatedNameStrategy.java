@@ -146,6 +146,9 @@ public class AssociatedNameStrategy implements SubjectNameStrategy {
   @Override
   public void setKafkaClusterId(String clusterId) {
     if (!Objects.equals(this.kafkaClusterId, clusterId)) {
+      if (this.kafkaClusterId != null && clusterId != null) {
+        log.warn("Kafka cluster ID changed from {} to {}", this.kafkaClusterId, clusterId);
+      }
       this.kafkaClusterId = clusterId;
       subjectNameCache.invalidateAll();
     }
