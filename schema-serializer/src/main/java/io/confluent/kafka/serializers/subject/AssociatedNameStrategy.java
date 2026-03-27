@@ -57,6 +57,9 @@ public class AssociatedNameStrategy implements SubjectNameStrategy {
   private Map<String, ?> configs;
   private volatile String kafkaClusterId;
   private SubjectNameStrategy fallbackSubjectNameStrategy = new TopicNameStrategy();
+  private volatile boolean warnedNoClient;
+  private volatile boolean warnedEndpointNotFound;
+  private volatile boolean warnedEndpointNotImplemented;
   private final LoadingCache<CacheKey, Optional<String>> subjectNameCache;
 
   public AssociatedNameStrategy() {
@@ -118,8 +121,11 @@ public class AssociatedNameStrategy implements SubjectNameStrategy {
     if (client == null) {
       SubjectNameStrategy fallbackSubjectNameStrategy = getFallbackSubjectNameStrategy();
       if (fallbackSubjectNameStrategy != null) {
-        log.warn("Client is not set in AssociatedNameStrategy, perhaps configure() on serde "
-            + " was not called, using fallback strategy");
+        if (!warnedNoClient) {
+          warnedNoClient = true;
+          log.warn("Client is not set in AssociatedNameStrategy, perhaps configure() on serde "
+              + " was not called, using fallback strategy");
+        }
         return fallbackSubjectNameStrategy.subjectName(topic, isKey, schema);
       } else {
         throw new SerializationException("Client is not set in AssociatedNameStrategy, "
@@ -140,6 +146,7 @@ public class AssociatedNameStrategy implements SubjectNameStrategy {
   @Override
   public void setKafkaClusterId(String clusterId) {
     this.kafkaClusterId = clusterId;
+    subjectNameCache.invalidateAll();
   }
 
   protected String getKafkaClusterId() {
@@ -166,14 +173,20 @@ public class AssociatedNameStrategy implements SubjectNameStrategy {
       );
     } catch (RestClientException e) {
       if (e.getStatus() == 404) {
-        log.warn("Associations endpoint not found (404), using fallback strategy");
+        if (!warnedEndpointNotFound) {
+          warnedEndpointNotFound = true;
+          log.warn("Associations endpoint not found (404), using fallback strategy");
+        }
         // empty list will invoke fallback strategy
         associations = Collections.emptyList();
       } else {
         throw e;
       }
     } catch (UnsupportedOperationException e) {
-      log.warn("Associations endpoint not implemented in the client, using fallback strategy");
+      if (!warnedEndpointNotImplemented) {
+        warnedEndpointNotImplemented = true;
+        log.warn("Associations endpoint not implemented in the client, using fallback strategy");
+      }
       // empty list will invoke fallback strategy
       associations = Collections.emptyList();
     }
