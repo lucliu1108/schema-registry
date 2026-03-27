@@ -393,7 +393,7 @@ public class EncryptionExecutor implements RuleExecutor {
       DekId dekId = new DekId(kekName, ctx.subject(), version, cryptor.getDekFormat(), isRead);
 
       Aead aead = null;
-      Dek dek = retrieveDekFromRegistry(dekId);
+      Dek dek = retrieveDekFromRegistry(ctx, dekId);
       boolean isExpired = isExpired(ctx, dek);
       if (isExpired) {
         log.info("Dek with ts " + dek.getTimestamp()
