@@ -22,9 +22,9 @@ import javax.ws.rs.container.ContainerRequestContext;
 import javax.ws.rs.core.UriInfo;
 import org.junit.Test;
 
-public class ExporterNameLoggingFilterTest {
+public class RestCallLoggingFilterTest {
 
-  private final ExporterNameLoggingFilter filter = new ExporterNameLoggingFilter();
+  private final RestCallLoggingFilter filter = new RestCallLoggingFilter();
 
   @Test
   public void testFilterWithExporterHeader() {

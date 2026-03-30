@@ -23,9 +23,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Priority(Priorities.USER)
-public class ExporterNameLoggingFilter implements ContainerRequestFilter {
+public class RestCallLoggingFilter implements ContainerRequestFilter {
   private static final Logger log =
-      LoggerFactory.getLogger(ExporterNameLoggingFilter.class);
+      LoggerFactory.getLogger(RestCallLoggingFilter.class);
   private static final String EXPORTER_HEADER = "Confluent-Schema-Exporter-Name";
 
   @Override
