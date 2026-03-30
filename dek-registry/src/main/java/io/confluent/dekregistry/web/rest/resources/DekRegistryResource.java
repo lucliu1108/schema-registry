@@ -305,13 +305,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       final @Context HttpHeaders headers,
       @Parameter(description = "The create request", required = true)
       @NotNull CreateKekRequest request) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, creating kek: {}, kmsType: {}",
-          exporterName, request.getName(), request.getKmsType());
-    } else {
-      log.debug("Creating kek {}", request.getName());
-    }
+    log.debug("Creating kek {}", request.getName());
 
     checkName(request.getName());
 
@@ -392,13 +386,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @QueryParam("rewrap") boolean rewrap,
       @Parameter(description = "The create request", required = true)
       @NotNull CreateDekRequest request) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, creating dek: kek {}, subject {}",
-          exporterName, kekName, subject);
-    } else {
-      log.debug("Creating dek {} for kek {}", subject, kekName);
-    }
+    log.debug("Creating dek {} for kek {}", subject, kekName);
 
     // Ensure request uses subject from path param
     request.setSubject(subject);
@@ -448,12 +436,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("name") String name,
       @Parameter(description = "The update request", required = true)
       @NotNull UpdateKekRequest request) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, updating kek: {}", exporterName, name);
-    } else {
-      log.debug("Updating kek {}", name);
-    }
+    log.debug("Updating kek {}", name);
 
     checkName(name);
 
@@ -493,13 +476,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("name") String name,
       @Parameter(description = "Whether to perform a permanent delete")
       @QueryParam("permanent") boolean permanentDelete) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, deleting kek: {}, permanent: {}",
-          exporterName, name, permanentDelete);
-    } else {
-      log.debug("Deleting kek {}", name);
-    }
+    log.debug("Deleting kek {}", name);
 
     checkName(name);
 
@@ -545,13 +522,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @QueryParam("algorithm") DekFormat algorithm,
       @Parameter(description = "Whether to perform a permanent delete")
       @QueryParam("permanent") boolean permanentDelete) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, deleting dek: kek {}, subject {}, permanent: {}",
-          exporterName, kekName, subject, permanentDelete);
-    } else {
-      log.debug("Deleting dek {} for kek {}", subject, kekName);
-    }
+    log.debug("Deleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
     checkSubject(subject);
@@ -605,14 +576,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @QueryParam("algorithm") DekFormat algorithm,
       @Parameter(description = "Whether to perform a permanent delete")
       @QueryParam("permanent") boolean permanentDelete) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, deleting dek: kek {}, subject {}, version {}, "
-              + "permanent: {}",
-          exporterName, kekName, subject, version, permanentDelete);
-    } else {
-      log.debug("Deleting dek {} for kek {}", subject, kekName);
-    }
+    log.debug("Deleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
     checkSubject(subject);
@@ -663,12 +627,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       final @Context HttpHeaders headers,
       @Parameter(description = "Name of the kek", required = true)
       @PathParam("name") String name) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, undeleting kek: {}", exporterName, name);
-    } else {
-      log.debug("Undeleting kek {}", name);
-    }
+    log.debug("Undeleting kek {}", name);
 
     checkName(name);
 
@@ -710,13 +669,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("subject") String subject,
       @Parameter(description = "Algorithm of the dek")
       @QueryParam("algorithm") DekFormat algorithm) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, undeleting dek: kek {}, subject {}",
-          exporterName, kekName, subject);
-    } else {
-      log.debug("Undeleting dek {} for kek {}", subject, kekName);
-    }
+    log.debug("Undeleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
     checkSubject(subject);
@@ -767,13 +720,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("version") String version,
       @Parameter(description = "Algorithm of the dek")
       @QueryParam("algorithm") DekFormat algorithm) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, undeleting dek: kek {}, subject {}, version {}",
-          exporterName, kekName, subject, version);
-    } else {
-      log.debug("Undeleting dek {} for kek {}", subject, kekName);
-    }
+    log.debug("Undeleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
     checkSubject(subject);

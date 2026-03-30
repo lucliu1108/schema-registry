@@ -105,11 +105,6 @@ public class ConfigResource {
       @Context HttpHeaders headers,
       @Parameter(description = "Config Update Request", required = true)
       @NotNull ConfigUpdateRequest request) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, updating subject-level config for subject: {}",
-          exporterName, subject);
-    }
 
     schemaRegistry.getCompositeUpdateRequestHandler().handle(subject, request);
 
@@ -222,10 +217,6 @@ public class ConfigResource {
       @Context HttpHeaders headers,
       @Parameter(description = "Config Update Request", required = true)
       @NotNull ConfigUpdateRequest request) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, updating top-level config", exporterName);
-    }
 
     schemaRegistry.getCompositeUpdateRequestHandler().handle(request);
 
@@ -306,12 +297,7 @@ public class ConfigResource {
   public void deleteTopLevelConfig(
       final @Suspended AsyncResponse asyncResponse,
       @Context HttpHeaders headers) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, deleting global config", exporterName);
-    } else {
-      log.debug("Deleting Global compatibility setting and reverting back to default");
-    }
+    log.debug("Deleting Global compatibility setting and reverting back to default");
 
     Config deletedConfig;
     try {
@@ -356,13 +342,7 @@ public class ConfigResource {
       @Context HttpHeaders headers,
       @Parameter(description = "Name of the subject", required = true)
       @PathParam("subject") String subject) {
-    String exporterName = headers.getHeaderString("Confluent-Schema-Exporter-Name");
-    if (exporterName != null && !exporterName.isEmpty()) {
-      log.info("Request from exporter: {}, deleting config for subject: {}",
-          exporterName, subject);
-    } else {
-      log.debug("Deleting compatibility setting for subject {}", subject);
-    }
+    log.debug("Deleting compatibility setting for subject {}", subject);
 
     subject = QualifiedSubject.normalize(schemaRegistry.tenant(), subject);
 
