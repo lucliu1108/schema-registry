@@ -305,6 +305,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       final @Context HttpHeaders headers,
       @Parameter(description = "The create request", required = true)
       @NotNull CreateKekRequest request) {
+
     log.debug("Creating kek {}", request.getName());
 
     checkName(request.getName());
@@ -386,6 +387,8 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @QueryParam("rewrap") boolean rewrap,
       @Parameter(description = "The create request", required = true)
       @NotNull CreateDekRequest request) {
+
+
     log.debug("Creating dek {} for kek {}", subject, kekName);
 
     // Ensure request uses subject from path param
@@ -436,6 +439,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("name") String name,
       @Parameter(description = "The update request", required = true)
       @NotNull UpdateKekRequest request) {
+
     log.debug("Updating kek {}", name);
 
     checkName(name);
@@ -476,6 +480,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("name") String name,
       @Parameter(description = "Whether to perform a permanent delete")
       @QueryParam("permanent") boolean permanentDelete) {
+
     log.debug("Deleting kek {}", name);
 
     checkName(name);
@@ -522,6 +527,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @QueryParam("algorithm") DekFormat algorithm,
       @Parameter(description = "Whether to perform a permanent delete")
       @QueryParam("permanent") boolean permanentDelete) {
+
     log.debug("Deleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
@@ -576,6 +582,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @QueryParam("algorithm") DekFormat algorithm,
       @Parameter(description = "Whether to perform a permanent delete")
       @QueryParam("permanent") boolean permanentDelete) {
+
     log.debug("Deleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
@@ -627,6 +634,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       final @Context HttpHeaders headers,
       @Parameter(description = "Name of the kek", required = true)
       @PathParam("name") String name) {
+
     log.debug("Undeleting kek {}", name);
 
     checkName(name);
@@ -669,6 +677,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("subject") String subject,
       @Parameter(description = "Algorithm of the dek")
       @QueryParam("algorithm") DekFormat algorithm) {
+
     log.debug("Undeleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
@@ -720,6 +729,7 @@ public class DekRegistryResource extends SchemaRegistryResource {
       @PathParam("version") String version,
       @Parameter(description = "Algorithm of the dek")
       @QueryParam("algorithm") DekFormat algorithm) {
+
     log.debug("Undeleting dek {} for kek {}", subject, kekName);
 
     checkName(kekName);
