@@ -16,6 +16,7 @@
 
 package io.confluent.kafka.schemaregistry.client.rest.entities.requests;
 
+import static io.confluent.kafka.schemaregistry.client.rest.utils.RestValidation.checkSubject;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -151,6 +152,9 @@ public class AssociationCreateOrUpdateInfo {
   }
 
   public void validate(boolean isCreateOnly, boolean dryRun) {
+    if (getSubject() != null) {
+      checkSubject(getSubject());
+    }
     if (isCreateOnly && getSchema() != null) {
       if (getLifecycle() == LifecyclePolicy.WEAK) {
         throw new IllegalPropertyException(

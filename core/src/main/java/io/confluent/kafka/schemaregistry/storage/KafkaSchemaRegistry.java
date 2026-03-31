@@ -1173,7 +1173,6 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         + QualifiedSubject.CONTEXT_DELIMITER + request.getResourceName();
     for (AssociationCreateOrUpdateInfo info : request.getAssociations()) {
       String unqualifiedSubject = info.getSubject();
-
       QualifiedSubject qs = replaceAlias(context, unqualifiedSubject);
       String qualifiedSubject = qs.toQualifiedSubject();
       if (isReadOnlyMode(qualifiedSubject)) {

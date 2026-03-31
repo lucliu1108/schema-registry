@@ -17,7 +17,6 @@
 package io.confluent.kafka.schemaregistry.client.rest.entities.requests;
 
 import static io.confluent.kafka.schemaregistry.client.rest.utils.RestValidation.checkName;
-import static io.confluent.kafka.schemaregistry.client.rest.utils.RestValidation.checkSubject;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -164,7 +163,6 @@ public class AssociationCreateOrUpdateRequest {
         info.setSubject(QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
             + QualifiedSubject.CONTEXT_DELIMITER + resourceName);
       }
-      checkSubject(info.getSubject());
     }
   }
 }
