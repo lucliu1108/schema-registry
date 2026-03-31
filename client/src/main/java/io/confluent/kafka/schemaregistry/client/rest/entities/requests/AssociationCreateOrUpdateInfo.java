@@ -151,7 +151,19 @@ public class AssociationCreateOrUpdateInfo {
     return JacksonMapper.INSTANCE.writeValueAsString(this);
   }
 
-  public void validate(boolean dryRun) {
+  public void validate(boolean isCreateOnly, boolean dryRun) {
+    if (isCreateOnly && getSchema() != null) {
+      if (getLifecycle() == LifecyclePolicy.WEAK) {
+        throw new IllegalPropertyException(
+            "lifecycle", "cannot be WEAK when schema is provided for create");
+      }
+      if (Boolean.FALSE.equals(getFrozen())) {
+        throw new IllegalPropertyException(
+            "frozen", "cannot be false when schema is provided for create");
+      }
+      setLifecycle(LifecyclePolicy.STRONG);
+      setFrozen(true);
+    }
     checkSubject(getSubject());
     if (getAssociationType() != null && !getAssociationType().isEmpty()) {
       if (!getAssociationType().equals(KEY_ASSOCIATION_TYPE)
