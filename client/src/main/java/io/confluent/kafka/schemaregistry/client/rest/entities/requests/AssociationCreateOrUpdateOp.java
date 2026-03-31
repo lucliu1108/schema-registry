@@ -16,7 +16,6 @@
 
 package io.confluent.kafka.schemaregistry.client.rest.entities.requests;
 
-import static io.confluent.kafka.schemaregistry.client.rest.utils.RestValidation.checkSubject;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -143,7 +142,6 @@ public abstract class AssociationCreateOrUpdateOp extends AssociationOp {
   }
 
   public void validate(boolean dryRun) {
-    checkSubject(getSubject());
     if (getAssociationType() != null && !getAssociationType().isEmpty()) {
       if (!getAssociationType().equals(KEY_ASSOCIATION_TYPE)
           && !getAssociationType().equals(VALUE_ASSOCIATION_TYPE)) {

@@ -17,6 +17,7 @@
 package io.confluent.kafka.schemaregistry.client.rest.entities.requests;
 
 import static io.confluent.kafka.schemaregistry.client.rest.utils.RestValidation.checkName;
+import static io.confluent.kafka.schemaregistry.client.rest.utils.RestValidation.checkSubject;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -24,6 +25,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.IllegalPropertyException;
+import io.confluent.kafka.schemaregistry.utils.QualifiedSubject;
 import io.confluent.kafka.schemaregistry.utils.JacksonMapper;
 import java.io.IOException;
 import java.util.List;
@@ -158,6 +160,11 @@ public class AssociationCreateOrUpdateRequest {
     }
     for (AssociationCreateOrUpdateInfo info : getAssociations()) {
       info.validate(isCreateOnly, dryRun);
+      if (info.getSubject() == null) {
+        info.setSubject(QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
+            + QualifiedSubject.CONTEXT_DELIMITER + resourceName);
+      }
+      checkSubject(info.getSubject());
     }
   }
 }
