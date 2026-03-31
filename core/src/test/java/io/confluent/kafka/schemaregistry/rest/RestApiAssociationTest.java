@@ -2323,7 +2323,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
 
     AssociationResponse response = restApp.restClient.createAssociation(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, request);
-    assertEquals(":.default:topic1", response.getAssociations().get(0).getSubject());
+    assertEquals(":.default:topic1-value", response.getAssociations().get(0).getSubject());
     assertEquals(LifecyclePolicy.STRONG, response.getAssociations().get(0).getLifecycle());
     assertTrue(response.getAssociations().get(0).isFrozen());
   }
@@ -2351,42 +2351,42 @@ public class RestApiAssociationTest extends ClusterTestHarness {
   }
 
   @Test
-  public void testCreateNonFrozenStrongWithoutSubjectFails() throws Exception {
-    String subject = "subject-strong-nosub";
+  public void testCreateNonFrozenStrongWithoutSubjectSucceeds() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
     String resourceId = "strong-nosub-123";
     List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(1);
 
-    // Register schema separately
-    restApp.restClient.registerSchema(allSchemas.get(0), subject);
+    // Register schema under the default subject
+    restApp.restClient.registerSchema(allSchemas.get(0), ":.default:topic1-value");
 
-    // Create non-frozen STRONG without subject — should fail
+    // Create non-frozen STRONG without subject — should succeed with default subject
     AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
         resourceName, resourceNamespace, resourceId, "topic",
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
             null, "value", LifecyclePolicy.STRONG, null, null, null)));
 
-    assertThrows(Exception.class, () ->
-        restApp.restClient.createAssociation(
-            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, request));
+    AssociationResponse response = restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, request);
+    assertEquals(":.default:topic1-value", response.getAssociations().get(0).getSubject());
+    assertEquals(LifecyclePolicy.STRONG, response.getAssociations().get(0).getLifecycle());
   }
 
   @Test
-  public void testDefaultSubjectNotAllowedForNonFrozenStrong() throws Exception {
+  public void testDefaultSubjectNotAllowedForWeak() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
-    String resourceId = "nonfrozen-default-sub-123";
+    String resourceId = "weak-default-sub-123";
     List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(1);
 
     // Register schema separately under the default subject
-    restApp.restClient.registerSchema(allSchemas.get(0), ":.default:topic1");
+    restApp.restClient.registerSchema(allSchemas.get(0), ":.default:topic1-value");
 
-    // Try to create non-frozen STRONG with the default subject explicitly
+    // Try to create WEAK with the default subject explicitly — should fail
     AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
         resourceName, resourceNamespace, resourceId, "topic",
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
-            ":.default:topic1", "value", LifecyclePolicy.STRONG, false, null, null)));
+            ":.default:topic1-value", "value", LifecyclePolicy.WEAK, false, null, null)));
 
     assertThrows(Exception.class, () ->
         restApp.restClient.createAssociation(
@@ -2416,7 +2416,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, batchRequest);
     assertNull(response.getResults().get(0).getError());
     AssociationResponse assocResponse = response.getResults().get(0).getResult();
-    assertEquals(":.default:topic1", assocResponse.getAssociations().get(0).getSubject());
+    assertEquals(":.default:topic1-value", assocResponse.getAssociations().get(0).getSubject());
     assertEquals(LifecyclePolicy.STRONG, assocResponse.getAssociations().get(0).getLifecycle());
     assertTrue(assocResponse.getAssociations().get(0).isFrozen());
   }

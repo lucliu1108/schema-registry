@@ -62,9 +62,9 @@ public class AssociationCreateOp extends AssociationCreateOrUpdateOp {
       setFrozen(true);
     }
     super.validate(dryRun);
-    if (getSubject() == null && !Boolean.TRUE.equals(getFrozen())) {
+    if (getSubject() == null && getLifecycle() != LifecyclePolicy.STRONG) {
       throw new IllegalPropertyException(
-          "subject", "must be provided for non-frozen associations");
+          "subject", "must be provided for non-strong associations");
     }
   }
 

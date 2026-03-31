@@ -223,20 +223,23 @@ public class AssociationsRequestTest {
     AssociationOpRequest request = new AssociationOpRequest(
         "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
     request.validate(false);
-    assertEquals(":.test-ns:test-resource", op.getSubject());
+    assertEquals(":.test-ns:test-resource-value", op.getSubject());
+  }
+
+  @Test
+  public void testCreateOpWithNullSubjectAndNonFrozenStrongDoesNotThrow() {
+    AssociationCreateOp op = new AssociationCreateOp(
+        null, null, LifecyclePolicy.STRONG, null, null, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
+    request.validate(false);
+    assertEquals(":.test-ns:test-resource-value", op.getSubject());
   }
 
   @Test(expected = IllegalPropertyException.class)
   public void testCreateOpWithNullSubjectAndWeakThrows() {
     AssociationCreateOp op = new AssociationCreateOp(
         null, null, LifecyclePolicy.WEAK, null, null, null);
-    op.validate(false);
-  }
-
-  @Test(expected = IllegalPropertyException.class)
-  public void testCreateOpWithNullSubjectAndNonFrozenStrongThrows() {
-    AssociationCreateOp op = new AssociationCreateOp(
-        null, null, LifecyclePolicy.STRONG, null, null, null);
     op.validate(false);
   }
 
@@ -249,20 +252,23 @@ public class AssociationsRequestTest {
     AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
         "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
     request.validate(true, false);
-    assertEquals(":.test-ns:test-resource", info.getSubject());
+    assertEquals(":.test-ns:test-resource-value", info.getSubject());
+  }
+
+  @Test
+  public void testCreateInfoWithNullSubjectAndNonFrozenStrongDoesNotThrow() {
+    AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
+        null, null, LifecyclePolicy.STRONG, null, null, null);
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
+    request.validate(true, false);
+    assertEquals(":.test-ns:test-resource-value", info.getSubject());
   }
 
   @Test(expected = IllegalPropertyException.class)
   public void testCreateInfoWithNullSubjectAndWeakThrows() {
     AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
         null, null, LifecyclePolicy.WEAK, null, null, null);
-    info.validate(true, false);
-  }
-
-  @Test(expected = IllegalPropertyException.class)
-  public void testCreateInfoWithNullSubjectAndNonFrozenStrongThrows() {
-    AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
-        null, null, LifecyclePolicy.STRONG, null, null, null);
     info.validate(true, false);
   }
 
@@ -273,7 +279,7 @@ public class AssociationsRequestTest {
     AssociationOpRequest request = new AssociationOpRequest(
         "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
     request.validate(false);
-    assertEquals(":.test-ns:test-resource", op.getSubject());
+    assertEquals(":.test-ns:test-resource-value", op.getSubject());
   }
 
   @Test
@@ -283,7 +289,7 @@ public class AssociationsRequestTest {
     AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
         "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
     request.validate(false, false);
-    assertEquals(":.test-ns:test-resource", info.getSubject());
+    assertEquals(":.test-ns:test-resource-value", info.getSubject());
   }
 
   @Test

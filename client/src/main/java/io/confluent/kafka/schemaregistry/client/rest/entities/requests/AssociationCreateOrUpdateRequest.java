@@ -161,7 +161,8 @@ public class AssociationCreateOrUpdateRequest {
       info.validate(isCreateOnly, dryRun);
       if (info.getSubject() == null) {
         info.setSubject(QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
-            + QualifiedSubject.CONTEXT_DELIMITER + resourceName);
+            + QualifiedSubject.CONTEXT_DELIMITER + resourceName
+            + "-" + info.getAssociationType());
       }
     }
   }

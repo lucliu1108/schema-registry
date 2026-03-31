@@ -163,7 +163,8 @@ public class AssociationOpRequest {
         AssociationCreateOrUpdateOp createOrUpdateOp = (AssociationCreateOrUpdateOp) op;
         if (createOrUpdateOp.getSubject() == null) {
           createOrUpdateOp.setSubject(QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
-              + QualifiedSubject.CONTEXT_DELIMITER + resourceName);
+              + QualifiedSubject.CONTEXT_DELIMITER + resourceName
+              + "-" + createOrUpdateOp.getAssociationType());
         }
       }
     }
