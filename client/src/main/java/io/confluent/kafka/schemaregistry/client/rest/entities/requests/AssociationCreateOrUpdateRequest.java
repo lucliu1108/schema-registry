@@ -157,12 +157,30 @@ public class AssociationCreateOrUpdateRequest {
     if (getAssociations() == null || getAssociations().isEmpty()) {
       throw new IllegalPropertyException("associations", "cannot be null or empty");
     }
+    Boolean frozenState = null;
     for (AssociationCreateOrUpdateInfo info : getAssociations()) {
       info.validate(isCreateOnly, dryRun);
+      String defaultSubject = QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
+          + QualifiedSubject.CONTEXT_DELIMITER + resourceName
+          + "-" + info.getAssociationType();
       if (info.getSubject() == null) {
-        info.setSubject(QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
-            + QualifiedSubject.CONTEXT_DELIMITER + resourceName
-            + "-" + info.getAssociationType());
+        info.setSubject(defaultSubject);
+      }
+      // Frozen associations must use the default subject format
+      if (Boolean.TRUE.equals(info.getFrozen())
+          && !info.getSubject().equals(defaultSubject)) {
+        throw new IllegalPropertyException(
+            "subject", "frozen associations must use subject '" + defaultSubject + "'");
+      }
+      // Check frozen consistency within the request
+      if (info.getFrozen() != null) {
+        if (frozenState == null) {
+          frozenState = info.getFrozen();
+        } else if (!frozenState.equals(info.getFrozen())) {
+          throw new IllegalPropertyException(
+              "frozen", "all associations for a resource must be consistently "
+                  + "frozen or non-frozen");
+        }
       }
     }
   }

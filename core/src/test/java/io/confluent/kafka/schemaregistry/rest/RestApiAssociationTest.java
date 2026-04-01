@@ -2417,5 +2417,218 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     assertEquals(LifecyclePolicy.STRONG, assocResponse.getAssociations().get(0).getLifecycle());
     assertTrue(assocResponse.getAssociations().get(0).isFrozen());
   }
+
+  // Requirement: Frozen STRONG must use default subject
+
+  @Test
+  public void testCreateFrozenWithCustomSubjectFails() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "frozen-custom-sub-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(1);
+
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(0));
+
+    // Frozen with a custom subject — should fail
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            "custom-subject", "value", LifecyclePolicy.STRONG, true, schemaRequest, null)));
+
+    assertThrows(Exception.class, () ->
+        restApp.restClient.createAssociation(
+            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, request));
+  }
+
+  @Test
+  public void testBatchCreateFrozenWithCustomSubjectFails() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "batch-frozen-custom-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(1);
+
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(0));
+
+    AssociationCreateOp createOp = new AssociationCreateOp(
+        "custom-subject", "value", LifecyclePolicy.STRONG, true, schemaRequest, null);
+    AssociationOpRequest opRequest = new AssociationOpRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        Collections.singletonList(createOp));
+    AssociationBatchRequest batchRequest = new AssociationBatchRequest(
+        Collections.singletonList(opRequest));
+
+    AssociationBatchResponse response = restApp.restClient.mutateAssociations(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, batchRequest);
+    assertNotNull(response.getResults().get(0).getError());
+  }
+
+  // Requirement: Frozen/non-frozen consistency at resource level
+
+  @Test
+  public void testCreateFrozenThenUpsertNonFrozenFails() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "frozen-consistency-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(2);
+
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(0));
+
+    // Create frozen association
+    AssociationCreateOrUpdateRequest createRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "key", null, null, schemaRequest, null)));
+
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
+
+    // Now try to upsert a non-frozen association for the same resource — should fail
+    restApp.restClient.registerSchema(allSchemas.get(1), "value-subject");
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            "value-subject", "value", LifecyclePolicy.STRONG, false, null, null)));
+
+    assertThrows(Exception.class, () ->
+        restApp.restClient.createOrUpdateAssociation(
+            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest));
+  }
+
+  @Test
+  public void testCreateNonFrozenThenUpsertFrozenFails() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "nonfrozen-then-frozen-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(2);
+
+    // Create non-frozen association
+    restApp.restClient.registerSchema(allSchemas.get(0), "key-subject");
+    AssociationCreateOrUpdateRequest createRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            "key-subject", "key", LifecyclePolicy.STRONG, false, null, null)));
+
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
+
+    // Now try to upsert a frozen association for the same resource — should fail
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(1));
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "value", LifecyclePolicy.STRONG, true, schemaRequest, null)));
+
+    assertThrows(Exception.class, () ->
+        restApp.restClient.createOrUpdateAssociation(
+            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest));
+  }
+
+  @Test
+  public void testCreateFrozenThenUpsertAnotherFrozenSucceeds() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "all-frozen-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(2);
+
+    RegisterSchemaRequest schemaRequest1 = new RegisterSchemaRequest();
+    schemaRequest1.setSchema(allSchemas.get(0));
+
+    // Create frozen key association
+    AssociationCreateOrUpdateRequest createRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "key", null, null, schemaRequest1, null)));
+
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
+
+    // Upsert another frozen association for the same resource — should succeed
+    RegisterSchemaRequest schemaRequest2 = new RegisterSchemaRequest();
+    schemaRequest2.setSchema(allSchemas.get(1));
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "value", LifecyclePolicy.STRONG, true, schemaRequest2, null)));
+
+    restApp.restClient.createOrUpdateAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+
+    // Verify both exist
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        ImmutableList.of("key", "value"), null, 0, -1);
+    assertEquals(2, associations.size());
+    assertTrue(associations.get(0).isFrozen());
+    assertTrue(associations.get(1).isFrozen());
+  }
+
+  @Test
+  public void testBatchCreateMixedFrozenAndNonFrozenFails() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "batch-mixed-frozen-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(2);
+
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(0));
+
+    // Batch with mixed frozen and non-frozen — should fail
+    AssociationCreateOp frozenOp = new AssociationCreateOp(
+        null, "key", null, null, schemaRequest, null);
+    AssociationCreateOp nonFrozenOp = new AssociationCreateOp(
+        "some-subject", "value", LifecyclePolicy.STRONG, false, null, null);
+
+    // Register schema for the non-frozen subject
+    restApp.restClient.registerSchema(allSchemas.get(1), "some-subject");
+
+    AssociationOpRequest opRequest = new AssociationOpRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(frozenOp, nonFrozenOp));
+    AssociationBatchRequest batchRequest = new AssociationBatchRequest(
+        Collections.singletonList(opRequest));
+
+    AssociationBatchResponse response = restApp.restClient.mutateAssociations(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, batchRequest);
+    assertNotNull(response.getResults().get(0).getError());
+  }
+
+  @Test
+  public void testBatchCreateAllFrozenSucceeds() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "batch-all-frozen-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(2);
+
+    RegisterSchemaRequest schemaRequest1 = new RegisterSchemaRequest();
+    schemaRequest1.setSchema(allSchemas.get(0));
+    RegisterSchemaRequest schemaRequest2 = new RegisterSchemaRequest();
+    schemaRequest2.setSchema(allSchemas.get(1));
+
+    AssociationCreateOp op1 = new AssociationCreateOp(
+        null, "key", null, null, schemaRequest1, null);
+    AssociationCreateOp op2 = new AssociationCreateOp(
+        null, "value", null, null, schemaRequest2, null);
+
+    AssociationOpRequest opRequest = new AssociationOpRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(op1, op2));
+    AssociationBatchRequest batchRequest = new AssociationBatchRequest(
+        Collections.singletonList(opRequest));
+
+    AssociationBatchResponse response = restApp.restClient.mutateAssociations(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, batchRequest);
+    assertNull(response.getResults().get(0).getError());
+
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        ImmutableList.of("key", "value"), null, 0, -1);
+    assertEquals(2, associations.size());
+    assertTrue(associations.get(0).isFrozen());
+    assertTrue(associations.get(1).isFrozen());
+  }
 }
 

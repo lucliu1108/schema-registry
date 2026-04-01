@@ -157,14 +157,32 @@ public class AssociationOpRequest {
     if (getAssociations() == null || getAssociations().isEmpty()) {
       throw new IllegalPropertyException("associations", "cannot be null or empty");
     }
+    Boolean frozenState = null;
     for (AssociationOp op : getAssociations()) {
       op.validate(dryRun);
       if (op instanceof AssociationCreateOrUpdateOp) {
         AssociationCreateOrUpdateOp createOrUpdateOp = (AssociationCreateOrUpdateOp) op;
+        String defaultSubject = QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
+            + QualifiedSubject.CONTEXT_DELIMITER + resourceName
+            + "-" + createOrUpdateOp.getAssociationType();
         if (createOrUpdateOp.getSubject() == null) {
-          createOrUpdateOp.setSubject(QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
-              + QualifiedSubject.CONTEXT_DELIMITER + resourceName
-              + "-" + createOrUpdateOp.getAssociationType());
+          createOrUpdateOp.setSubject(defaultSubject);
+        }
+        // Frozen associations must use the default subject format
+        if (Boolean.TRUE.equals(createOrUpdateOp.getFrozen())
+            && !createOrUpdateOp.getSubject().equals(defaultSubject)) {
+          throw new IllegalPropertyException(
+              "subject", "frozen associations must use subject '" + defaultSubject + "'");
+        }
+        // Check frozen consistency within the request
+        if (createOrUpdateOp.getFrozen() != null) {
+          if (frozenState == null) {
+            frozenState = createOrUpdateOp.getFrozen();
+          } else if (!frozenState.equals(createOrUpdateOp.getFrozen())) {
+            throw new IllegalPropertyException(
+                "frozen", "all associations for a resource must be consistently "
+                    + "frozen or non-frozen");
+          }
         }
       }
     }

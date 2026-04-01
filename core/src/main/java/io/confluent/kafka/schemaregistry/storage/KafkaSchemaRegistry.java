@@ -1207,6 +1207,13 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         request.getResourceId(), request.getResourceType(),
         new ArrayList<>(infosByType.keySet()), null);
 
+    // Check frozen consistency at the resource level
+    List<Association> allAssociations = getAssociationsByResourceId(
+        request.getResourceId(), request.getResourceType(),
+        Collections.emptyList(), null);
+    Boolean existingFrozenState = allAssociations.isEmpty()
+        ? null : allAssociations.get(0).isFrozen();
+
     // Check whether the resource already has an association
     Map<String, Association> assocsByType = associations.stream()
         .collect(Collectors.toMap(Association::getAssociationType, a -> a));
@@ -1236,6 +1243,26 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
                     + "' is only allowed for strong associations");
           }
         }
+      }
+
+      // Frozen associations must use the default subject format
+      boolean isFrozen = association != null
+          ? association.isFrozen() : Boolean.TRUE.equals(info.getFrozen());
+      if (isFrozen && unqualifiedSubject != null
+          && !unqualifiedSubject.equals(defaultSubject)) {
+        throw new IllegalPropertyException(
+            "subject", "frozen associations must use subject '" + defaultSubject + "'");
+      }
+
+      // Check frozen consistency at the resource level
+      if (existingFrozenState != null && info.getFrozen() != null
+          && !existingFrozenState.equals(info.getFrozen())) {
+        throw new IllegalPropertyException(
+            "frozen", "all associations for a resource must be consistently "
+                + "frozen or non-frozen");
+      }
+      if (association == null && existingFrozenState == null && info.getFrozen() != null) {
+        existingFrozenState = info.getFrozen();
       }
 
       if (association == null) {

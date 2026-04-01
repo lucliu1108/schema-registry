@@ -316,4 +316,135 @@ public class AssociationsRequestTest {
         "bad\u0000subject", null, LifecyclePolicy.STRONG, null, null, null);
     op.validate(false);
   }
+
+  // Requirement: Frozen STRONG must use default subject
+
+  @Test(expected = IllegalPropertyException.class)
+  public void testCreateOpFrozenWithCustomSubjectThrows() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationCreateOp op = new AssociationCreateOp(
+        "custom-subject", null, null, null, schema, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
+    request.validate(false);
+  }
+
+  @Test
+  public void testCreateOpFrozenWithExplicitDefaultSubjectSucceeds() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationCreateOp op = new AssociationCreateOp(
+        ":.test-ns:test-resource-value", null, null, null, schema, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
+    request.validate(false);
+    assertEquals(":.test-ns:test-resource-value", op.getSubject());
+  }
+
+  @Test(expected = IllegalPropertyException.class)
+  public void testUpsertOpFrozenWithCustomSubjectThrows() {
+    AssociationUpsertOp op = new AssociationUpsertOp(
+        "custom-subject", null, LifecyclePolicy.STRONG, true, null, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
+    request.validate(false);
+  }
+
+  @Test(expected = IllegalPropertyException.class)
+  public void testCreateInfoFrozenWithCustomSubjectThrows() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
+        "custom-subject", null, null, null, schema, null);
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
+    request.validate(true, false);
+  }
+
+  @Test
+  public void testCreateInfoFrozenWithExplicitDefaultSubjectSucceeds() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
+        ":.test-ns:test-resource-value", null, null, null, schema, null);
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
+    request.validate(true, false);
+    assertEquals(":.test-ns:test-resource-value", info.getSubject());
+  }
+
+  // Requirement: Frozen/non-frozen consistency at resource level
+
+  @Test(expected = IllegalPropertyException.class)
+  public void testCreateOpMixedFrozenAndNonFrozenThrows() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationCreateOp frozenOp = new AssociationCreateOp(
+        null, "key", null, null, schema, null);
+    AssociationCreateOp nonFrozenOp = new AssociationCreateOp(
+        "test-subject", "value", LifecyclePolicy.STRONG, false, null, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null,
+        java.util.Arrays.asList(frozenOp, nonFrozenOp));
+    request.validate(false);
+  }
+
+  @Test
+  public void testCreateOpAllFrozenSucceeds() {
+    RegisterSchemaRequest schema1 = new RegisterSchemaRequest();
+    schema1.setSchema("{\"type\":\"string\"}");
+    RegisterSchemaRequest schema2 = new RegisterSchemaRequest();
+    schema2.setSchema("{\"type\":\"int\"}");
+    AssociationCreateOp op1 = new AssociationCreateOp(
+        null, "key", null, null, schema1, null);
+    AssociationCreateOp op2 = new AssociationCreateOp(
+        null, "value", null, null, schema2, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null,
+        java.util.Arrays.asList(op1, op2));
+    request.validate(false);
+  }
+
+  @Test
+  public void testCreateOpAllNonFrozenSucceeds() {
+    AssociationCreateOp op1 = new AssociationCreateOp(
+        "subject1", "key", LifecyclePolicy.STRONG, false, null, null);
+    AssociationCreateOp op2 = new AssociationCreateOp(
+        "subject2", "value", LifecyclePolicy.STRONG, false, null, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null,
+        java.util.Arrays.asList(op1, op2));
+    request.validate(false);
+  }
+
+  @Test(expected = IllegalPropertyException.class)
+  public void testCreateInfoMixedFrozenAndNonFrozenThrows() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationCreateOrUpdateInfo frozenInfo = new AssociationCreateOrUpdateInfo(
+        null, "key", null, null, schema, null);
+    AssociationCreateOrUpdateInfo nonFrozenInfo = new AssociationCreateOrUpdateInfo(
+        "test-subject", "value", LifecyclePolicy.STRONG, false, null, null);
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        "test-resource", "test-ns", "test-id", null,
+        java.util.Arrays.asList(frozenInfo, nonFrozenInfo));
+    request.validate(true, false);
+  }
+
+  @Test
+  public void testCreateInfoAllFrozenSucceeds() {
+    RegisterSchemaRequest schema1 = new RegisterSchemaRequest();
+    schema1.setSchema("{\"type\":\"string\"}");
+    RegisterSchemaRequest schema2 = new RegisterSchemaRequest();
+    schema2.setSchema("{\"type\":\"int\"}");
+    AssociationCreateOrUpdateInfo info1 = new AssociationCreateOrUpdateInfo(
+        null, "key", null, null, schema1, null);
+    AssociationCreateOrUpdateInfo info2 = new AssociationCreateOrUpdateInfo(
+        null, "value", null, null, schema2, null);
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        "test-resource", "test-ns", "test-id", null,
+        java.util.Arrays.asList(info1, info2));
+    request.validate(true, false);
+  }
 }
