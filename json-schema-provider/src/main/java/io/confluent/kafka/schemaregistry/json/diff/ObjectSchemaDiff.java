@@ -282,20 +282,55 @@ public class ObjectSchemaDiff {
     }
   }
 
-  private static boolean isOpenContentModel(final ObjectSchema schema) {
-    return schema.getPatternProperties().size() == 0
-        && schema.getSchemaOfAdditionalProperties() == null
-        && schema.permitsAdditionalProperties();
+  private static Schema getUnevaluatedProperties(final ObjectSchema schema) {
+    Object uneval = schema.getUnprocessedProperties().get("unevaluatedProperties");
+    return uneval instanceof Schema ? (Schema) uneval : null;
+  }
+
+  private static boolean isAdditionalPropertiesAbsent(final ObjectSchema schema) {
+    return schema.permitsAdditionalProperties()
+        && schema.getSchemaOfAdditionalProperties() == null;
+  }
+
+  static boolean isOpenContentModel(final ObjectSchema schema) {
+    // Fully open = (A = true) ∨ (A = ∅ ∧ U ∈ {true, ∅})
+    if (!schema.permitsAdditionalProperties()) {
+      return false;
+    }
+    if (schema.getSchemaOfAdditionalProperties() != null) {
+      return false;
+    }
+    if (!schema.getPatternProperties().isEmpty()) {
+      return false;
+    }
+    // A is absent — check U
+    Schema uneval = getUnevaluatedProperties(schema);
+    // U ∈ {true, ∅}: absent (null) or EmptySchema (true)
+    return uneval == null || uneval instanceof EmptySchema;
   }
 
   private static Schema schemaFromPartiallyOpenContentModel(
       final ObjectSchema schema, final String propertyKey) {
+    // Partially open = (A = S) ∨ (A = ∅ ∧ U = S)
+    // Check pattern properties first
     for (Map.Entry<Pattern, Schema> entry : schema.getPatternProperties().entrySet()) {
       Pattern pattern = entry.getKey();
       if (pattern.matcher(propertyKey).find()) {
         return entry.getValue();
       }
     }
-    return schema.getSchemaOfAdditionalProperties();
+    // Check additionalProperties schema
+    if (schema.getSchemaOfAdditionalProperties() != null) {
+      return schema.getSchemaOfAdditionalProperties();
+    }
+    // Check unevaluatedProperties schema (A = ∅ ∧ U = S)
+    if (isAdditionalPropertiesAbsent(schema)) {
+      Schema uneval = getUnevaluatedProperties(schema);
+      if (uneval != null && !(uneval instanceof FalseSchema)
+          && !(uneval instanceof EmptySchema)) {
+        return uneval;
+      }
+    }
+    return null;
   }
 }

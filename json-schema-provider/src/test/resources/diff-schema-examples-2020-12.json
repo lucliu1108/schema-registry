@@ -611,6 +611,34 @@
     "compatible": true
   },
   {
+    "description": "Detect optional property added to closed content model, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        },
+        "bar": {
+          "type": "number"
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "changes": [
+      "OPTIONAL_PROPERTY_ADDED_TO_UNOPEN_CONTENT_MODEL #/properties/bar"
+    ],
+    "compatible": true
+  },
+  {
     "description": "Detect property added to partially open content model 1",
     "original_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -686,6 +714,35 @@
     "compatible": true
   },
   {
+    "description": "Detect property added to partially open content model 2, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        }
+      },
+      "unevaluatedProperties": { "type": "string" }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        },
+        "bar": {
+          "type": "string"
+        }
+      },
+      "unevaluatedProperties": { "type": "string" }
+    },
+    "changes": [
+      "PROPERTY_ADDED_IS_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/properties/bar",
+      "OPTIONAL_PROPERTY_ADDED_TO_UNOPEN_CONTENT_MODEL #/properties/bar"
+    ],
+    "compatible": true
+  },
+  {
     "description": "Detect property added to partially open content model 3",
     "original_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -707,6 +764,36 @@
         }
       },
       "additionalProperties": { "type": "string" }
+    },
+    "changes": [
+      "TYPE_CHANGED #/properties/bar",
+      "PROPERTY_ADDED_NOT_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/properties/bar",
+      "OPTIONAL_PROPERTY_ADDED_TO_UNOPEN_CONTENT_MODEL #/properties/bar"
+    ],
+    "compatible": false
+  },
+  {
+    "description": "Detect property added to partially open content model 3, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        }
+      },
+      "unevaluatedProperties": { "type": "string" }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        },
+        "bar": {
+          "type": "number"
+        }
+      },
+      "unevaluatedProperties": { "type": "string" }
     },
     "changes": [
       "TYPE_CHANGED #/properties/bar",
@@ -740,6 +827,38 @@
         "bar"
       ],
       "additionalProperties": { "type": "string" }
+    },
+    "changes": [
+      "PROPERTY_ADDED_IS_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/properties/bar",
+      "REQUIRED_PROPERTY_ADDED_TO_UNOPEN_CONTENT_MODEL #/properties/bar"
+    ],
+    "compatible": false
+  },
+  {
+    "description": "Detect property added to partially open content model 4, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        }
+      },
+      "unevaluatedProperties": { "type": "string" }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "foo": {
+          "type": "string"
+        },
+        "bar": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bar"
+      ],
+      "unevaluatedProperties": { "type": "string" }
     },
     "changes": [
       "PROPERTY_ADDED_IS_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/properties/bar",

@@ -215,12 +215,42 @@ public class ArraySchemaDiff {
     }
   }
 
-  private static boolean isOpenContentModel(final ArraySchema schema) {
-    return schema.getSchemaOfAdditionalItems() == null
-        && schema.permitsAdditionalItems();
+  private static Schema getUnevaluatedItems(final ArraySchema schema) {
+    Object uneval = schema.getUnprocessedProperties().get("unevaluatedItems");
+    return uneval instanceof Schema ? (Schema) uneval : null;
+  }
+
+  private static boolean isAdditionalItemsAbsent(final ArraySchema schema) {
+    return schema.permitsAdditionalItems()
+        && schema.getSchemaOfAdditionalItems() == null;
+  }
+
+  static boolean isOpenContentModel(final ArraySchema schema) {
+    // Fully open = (A = true) ∨ (A = ∅ ∧ U ∈ {true, ∅})
+    if (!schema.permitsAdditionalItems()) {
+      return false;
+    }
+    if (schema.getSchemaOfAdditionalItems() != null) {
+      return false;
+    }
+    // A is absent — check U
+    Schema uneval = getUnevaluatedItems(schema);
+    return uneval == null || uneval instanceof EmptySchema;
   }
 
   private static Schema schemaFromPartiallyOpenContentModel(final ArraySchema schema) {
-    return schema.getSchemaOfAdditionalItems();
+    // Partially open = (A = S) ∨ (A = ∅ ∧ U = S)
+    if (schema.getSchemaOfAdditionalItems() != null) {
+      return schema.getSchemaOfAdditionalItems();
+    }
+    // Check unevaluatedItems (A = ∅ ∧ U = S)
+    if (isAdditionalItemsAbsent(schema)) {
+      Schema uneval = getUnevaluatedItems(schema);
+      if (uneval != null && !(uneval instanceof FalseSchema)
+          && !(uneval instanceof EmptySchema)) {
+        return uneval;
+      }
+    }
+    return null;
   }
 }
