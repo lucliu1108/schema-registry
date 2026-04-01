@@ -189,10 +189,10 @@ public class AssociationCreateOrUpdateInfo {
         throw new IllegalPropertyException(
             "frozen", "association with lifecycle of WEAK cannot be frozen");
       }
-    }
-    if (isCreateOnly && getSubject() == null && getLifecycle() != LifecyclePolicy.STRONG) {
-      throw new IllegalPropertyException(
-          "subject", "must be provided for non-strong associations");
+      if (isCreateOnly && getSubject() == null) {
+        throw new IllegalPropertyException(
+            "subject", "must be provided for WEAK associations");
+      }
     }
   }
 }
