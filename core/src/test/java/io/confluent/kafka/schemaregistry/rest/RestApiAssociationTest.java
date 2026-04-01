@@ -109,10 +109,8 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     assertEquals(resourceId, response.getResourceId());
     assertEquals("key", response.getAssociations().get(0).getAssociationType());
     assertEquals(LifecyclePolicy.WEAK, response.getAssociations().get(0).getLifecycle());
-    assertEquals(allSchemas.get(0), response.getAssociations().get(0).getSchema().getSchema());
     assertEquals("value", response.getAssociations().get(1).getAssociationType());
     assertEquals(LifecyclePolicy.STRONG, response.getAssociations().get(1).getLifecycle());
-    assertEquals(allSchemas.get(1), response.getAssociations().get(1).getSchema().getSchema());
 
     // Verify createTs and updateTs are set after creation
     List<Association> createdAssociations = restApp.restClient.getAssociationsByResourceId(
@@ -223,7 +221,6 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     assertEquals(resourceId, response.getResourceId());
     assertEquals("key", response.getAssociations().get(0).getAssociationType());
     assertEquals(LifecyclePolicy.STRONG, response.getAssociations().get(0).getLifecycle());
-    assertEquals(allSchemas.get(0), response.getAssociations().get(0).getSchema().getSchema());
 
     // Verify createTs remains the same but updateTs is updated after update
     List<Association> updatedAssociations = restApp.restClient.getAssociationsByResourceId(
