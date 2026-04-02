@@ -273,15 +273,11 @@ public class SchemaTranslator extends SchemaVisitor<SchemaTranslator.SchemaConte
     ArraySchema.Builder builder = ArraySchema.builder().requiresArray(false)
         .containsItemSchema(ctx.schema());
     Map<String, Object> unprocessed = new HashMap<>();
-    if (schema.getMinContains().intValue() != 1) {
-      unprocessed.put("minContains", schema.getMinContains());
-    }
+    unprocessed.put("minContains", schema.getMinContains());
     if (schema.getMaxContains() != null) {
       unprocessed.put("maxContains", schema.getMaxContains());
     }
-    if (!unprocessed.isEmpty()) {
-      builder.unprocessedProperties(unprocessed);
-    }
+    builder.unprocessedProperties(unprocessed);
     return new SchemaContext(schema, builder);
   }
 

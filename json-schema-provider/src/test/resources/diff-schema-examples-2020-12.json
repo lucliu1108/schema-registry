@@ -1953,6 +1953,73 @@
     "compatible": true
   },
   {
+    "description": "Detect removed minContains",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "contains": {
+        "type": "number"
+      },
+      "minContains": 1
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "contains": {
+        "type": "number"
+      }
+    },
+    "changes": [
+    ],
+    "compatible": true
+  },
+  {
+    "description": "Detect increased minContains",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "contains": {
+        "type": "number"
+      },
+      "minContains": 1
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "contains": {
+        "type": "number"
+      },
+      "minContains": 2
+    },
+    "changes": [
+      "MIN_CONTAINS_INCREASED #/minContains"
+    ],
+    "compatible": false
+  },
+  {
+    "description": "Detect decreased minContains",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "contains": {
+        "type": "number"
+      },
+      "minContains": 2
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "contains": {
+        "type": "number"
+      },
+      "minContains": 1
+    },
+    "changes": [
+      "MIN_CONTAINS_DECREASED #/minContains"
+    ],
+    "compatible": true
+  },
+  {
     "description": "Detect unique items removed",
     "original_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",

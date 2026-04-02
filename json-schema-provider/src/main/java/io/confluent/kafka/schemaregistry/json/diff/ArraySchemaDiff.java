@@ -39,10 +39,18 @@ import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.ITEM_R
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.ITEM_REMOVED_NOT_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.ITEM_WITH_EMPTY_SCHEMA_ADDED_TO_OPEN_CONTENT_MODEL;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.ITEM_WITH_FALSE_REMOVED_FROM_CLOSED_CONTENT_MODEL;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_CONTAINS_ADDED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_CONTAINS_DECREASED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_CONTAINS_INCREASED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_CONTAINS_REMOVED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_ITEMS_ADDED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_ITEMS_DECREASED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_ITEMS_INCREASED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MAX_ITEMS_REMOVED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_CONTAINS_ADDED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_CONTAINS_DECREASED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_CONTAINS_INCREASED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_CONTAINS_REMOVED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_ITEMS_ADDED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_ITEMS_DECREASED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_ITEMS_INCREASED;
@@ -95,6 +103,14 @@ public class ArraySchemaDiff {
         ctx.addDifference("uniqueItems", UNIQUE_ITEMS_ADDED);
       }
     }
+    compareContainsAttribute(ctx, "maxContains",
+        getMaxContains(original), getMaxContains(update),
+        MAX_CONTAINS_ADDED, MAX_CONTAINS_REMOVED,
+        MAX_CONTAINS_INCREASED, MAX_CONTAINS_DECREASED);
+    compareContainsAttribute(ctx, "minContains",
+        getMinContains(original), getMinContains(update),
+        MIN_CONTAINS_ADDED, MIN_CONTAINS_REMOVED,
+        MIN_CONTAINS_INCREASED, MIN_CONTAINS_DECREASED);
   }
 
   private static void compareAdditionalItems(
@@ -255,6 +271,34 @@ public class ArraySchemaDiff {
     try (Context.PathScope pathScope = ctx.enterPath("items")) {
       SchemaDiff.compare(ctx, original.getAllItemSchema(), update.getAllItemSchema());
     }
+  }
+
+  private static void compareContainsAttribute(
+      final Context ctx, final String name,
+      final Number originalVal, final Number updateVal,
+      final Difference.Type added, final Difference.Type removed,
+      final Difference.Type increased, final Difference.Type decreased) {
+    if (!Objects.equals(originalVal, updateVal)) {
+      if (originalVal == null) {
+        ctx.addDifference(name, added);
+      } else if (updateVal == null) {
+        ctx.addDifference(name, removed);
+      } else if (originalVal.intValue() < updateVal.intValue()) {
+        ctx.addDifference(name, increased);
+      } else if (originalVal.intValue() > updateVal.intValue()) {
+        ctx.addDifference(name, decreased);
+      }
+    }
+  }
+
+  private static Number getMaxContains(final ArraySchema schema) {
+    Object val = schema.getUnprocessedProperties().get("maxContains");
+    return val instanceof Number ? (Number) val : null;
+  }
+
+  private static Number getMinContains(final ArraySchema schema) {
+    Object val = schema.getUnprocessedProperties().get("minContains");
+    return val instanceof Number ? (Number) val : null;
   }
 
   private static Schema getUnevaluatedItems(final ArraySchema schema) {

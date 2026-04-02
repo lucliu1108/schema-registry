@@ -93,6 +93,10 @@ public class SchemaDiff {
     changes.add(Type.MAX_ITEMS_REMOVED);
     changes.add(Type.MIN_ITEMS_DECREASED);
     changes.add(Type.MIN_ITEMS_REMOVED);
+    changes.add(Type.MAX_CONTAINS_INCREASED);
+    changes.add(Type.MAX_CONTAINS_REMOVED);
+    changes.add(Type.MIN_CONTAINS_DECREASED);
+    changes.add(Type.MIN_CONTAINS_REMOVED);
     changes.add(Type.UNIQUE_ITEMS_REMOVED);
     changes.add(Type.ADDITIONAL_ITEMS_ADDED);
     changes.add(Type.ADDITIONAL_ITEMS_EXTENDED);
