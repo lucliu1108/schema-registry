@@ -401,15 +401,16 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     );
 
     // Test creating frozen association when schemas already exist fails
-    // First register a schema in the default subject
+    // First register a schema in the default subject for a different resource
+    String resourceName3 = "topic1-existing";
     restApp.restClient.registerSchema(allSchemas.get(1),
-        ":." + resourceNamespace + ":" + resourceName + "-key");
+        ":." + resourceNamespace + ":" + resourceName3 + "-key");
 
     RegisterSchemaRequest anotherSchemaRequest = new RegisterSchemaRequest();
     anotherSchemaRequest.setSchema(allSchemas.get(0));
 
     AssociationCreateOrUpdateRequest existingSchemasRequest = new AssociationCreateOrUpdateRequest(
-        resourceName,
+        resourceName3,
         resourceNamespace,
         resourceId3,
         "topic",
