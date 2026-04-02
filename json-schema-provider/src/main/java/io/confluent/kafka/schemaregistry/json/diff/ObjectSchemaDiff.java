@@ -337,7 +337,7 @@ public class ObjectSchemaDiff {
   }
 
   static boolean isOpenContentModel(final ObjectSchema schema) {
-    // Fully open = (A = true) ∨ (A = ∅ ∧ U ∈ {true, ∅})
+    // Fully open = (A = true) or (A is missing and U is true or missing)
     if (!schema.permitsAdditionalProperties()) {
       return false;
     }
@@ -349,13 +349,13 @@ public class ObjectSchemaDiff {
     }
     // A is absent — check U
     Schema uneval = getUnevaluatedProperties(schema);
-    // U ∈ {true, ∅}: absent (null) or EmptySchema (true)
+    // U is true or missing: absent (null) or EmptySchema (true)
     return uneval == null || uneval instanceof EmptySchema;
   }
 
   private static Schema schemaFromPartiallyOpenContentModel(
       final ObjectSchema schema, final String propertyKey) {
-    // Partially open = (A = S) ∨ (A = ∅ ∧ U = S)
+    // Partially open = (A = S) or (A is missing and U = S)
     // Check pattern properties first
     for (Map.Entry<Pattern, Schema> entry : schema.getPatternProperties().entrySet()) {
       Pattern pattern = entry.getKey();
@@ -367,7 +367,7 @@ public class ObjectSchemaDiff {
     if (schema.getSchemaOfAdditionalProperties() != null) {
       return schema.getSchemaOfAdditionalProperties();
     }
-    // Check unevaluatedProperties schema (A = ∅ ∧ U = S)
+    // Check unevaluatedProperties schema (A is missing and U = S)
     if (isAdditionalPropertiesAbsent(schema)) {
       Schema uneval = getUnevaluatedProperties(schema);
       if (uneval != null && !(uneval instanceof FalseSchema)

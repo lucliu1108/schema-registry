@@ -268,7 +268,7 @@ public class ArraySchemaDiff {
   }
 
   static boolean isOpenContentModel(final ArraySchema schema) {
-    // Fully open = (A = true) ∨ (A = ∅ ∧ U ∈ {true, ∅})
+    // Fully open = (A = true) or (A is missing and U is missing or true)
     if (!schema.permitsAdditionalItems()) {
       return false;
     }
@@ -281,11 +281,11 @@ public class ArraySchemaDiff {
   }
 
   private static Schema schemaFromPartiallyOpenContentModel(final ArraySchema schema) {
-    // Partially open = (A = S) ∨ (A = ∅ ∧ U = S)
+    // Partially open = (A = S) or (A is missing and U = S)
     if (schema.getSchemaOfAdditionalItems() != null) {
       return schema.getSchemaOfAdditionalItems();
     }
-    // Check unevaluatedItems (A = ∅ ∧ U = S)
+    // Check unevaluatedItems (A is missing and U = S)
     if (isAdditionalItemsAbsent(schema)) {
       Schema uneval = getUnevaluatedItems(schema);
       if (uneval != null && !(uneval instanceof FalseSchema)
