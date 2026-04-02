@@ -1533,6 +1533,42 @@
     "compatible": true
   },
   {
+    "description": "Detect item added to partially open content model 1, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
+    },
+    "changes": [
+      "ITEM_ADDED_IS_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/items/2"
+    ],
+    "compatible": true
+  },
+  {
     "description": "Detect item added to partially open content model 2",
     "original_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1562,6 +1598,43 @@
         }
       ],
       "items": { "type": "string" }
+    },
+    "changes": [
+      "TYPE_CHANGED #/items/2",
+      "ITEM_ADDED_NOT_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/items/2"
+    ],
+    "compatible": false
+  },
+  {
+    "description": "Detect item added to partially open content model 2, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
     },
     "changes": [
       "TYPE_CHANGED #/items/2",
@@ -1606,6 +1679,42 @@
     "compatible": true
   },
   {
+    "description": "Detect item removed from partially open content model 1, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
+    },
+    "changes": [
+      "ITEM_REMOVED_IS_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/items/2"
+    ],
+    "compatible": true
+  },
+  {
     "description": "Detect item removed from partially open content model 2",
     "original_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1642,6 +1751,42 @@
     "compatible": true
   },
   {
+    "description": "Detect item removed from partially open content model 2, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "oneOf": [{"type":"null"},{"type":"string"}]
+        }
+      ],
+      "unevaluatedItems": { "oneOf": [{"type":"null"},{"type":"string"}] }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "unevaluatedItems": { "oneOf": [{"type":"null"},{"type":"string"}] }
+    },
+    "changes": [
+      "ITEM_REMOVED_IS_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/items/2"
+    ],
+    "compatible": true
+  },
+  {
     "description": "Detect item removed from partially open content model 3",
     "original_schema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1671,6 +1816,43 @@
         }
       ],
       "items": { "type": "string" }
+    },
+    "changes": [
+      "TYPE_CHANGED #/items/2",
+      "ITEM_REMOVED_NOT_COVERED_BY_PARTIALLY_OPEN_CONTENT_MODEL #/items/2"
+    ],
+    "compatible": false
+  },
+  {
+    "description": "Detect item removed from partially open content model 3, unevaluated",
+    "original_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
+    },
+    "update_schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "unevaluatedItems": { "type": "string" }
     },
     "changes": [
       "TYPE_CHANGED #/items/2",

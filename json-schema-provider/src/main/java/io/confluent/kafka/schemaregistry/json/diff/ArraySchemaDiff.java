@@ -48,6 +48,10 @@ import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_IT
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_ITEMS_INCREASED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.MIN_ITEMS_REMOVED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNIQUE_ITEMS_ADDED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_ITEMS_ADDED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_ITEMS_EXTENDED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_ITEMS_NARROWED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_ITEMS_REMOVED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNIQUE_ITEMS_REMOVED;
 
 public class ArraySchemaDiff {
@@ -55,6 +59,7 @@ public class ArraySchemaDiff {
     compareItemSchemaObject(ctx, original, update);
     compareItemSchemaArray(ctx, original, update);
     compareAdditionalItems(ctx, original, update);
+    compareUnevaluatedItems(ctx, original, update);
     compareAttributes(ctx, original, update);
   }
 
@@ -114,6 +119,43 @@ public class ArraySchemaDiff {
             original.getSchemaOfAdditionalItems(),
             update.getSchemaOfAdditionalItems()
         );
+      }
+    }
+  }
+
+  private static void compareUnevaluatedItems(
+      final Context ctx, final ArraySchema original, final ArraySchema update
+  ) {
+    Schema originalUneval = getUnevaluatedItems(original);
+    Schema updateUneval = getUnevaluatedItems(update);
+    if (originalUneval == null && updateUneval == null) {
+      return;
+    }
+    try (Context.PathScope pathScope = ctx.enterPath("unevaluatedItems")) {
+      if (originalUneval == null) {
+        if (updateUneval instanceof FalseSchema) {
+          ctx.addDifference(UNEVALUATED_ITEMS_REMOVED);
+        } else {
+          ctx.addDifference(UNEVALUATED_ITEMS_NARROWED);
+        }
+      } else if (updateUneval == null) {
+        if (originalUneval instanceof FalseSchema) {
+          ctx.addDifference(UNEVALUATED_ITEMS_ADDED);
+        } else {
+          ctx.addDifference(UNEVALUATED_ITEMS_EXTENDED);
+        }
+      } else if (originalUneval instanceof FalseSchema && !(updateUneval instanceof FalseSchema)) {
+        ctx.addDifference(UNEVALUATED_ITEMS_ADDED);
+      } else if (!(originalUneval instanceof FalseSchema) && updateUneval instanceof FalseSchema) {
+        ctx.addDifference(UNEVALUATED_ITEMS_REMOVED);
+      } else if (originalUneval instanceof EmptySchema
+          && !(updateUneval instanceof EmptySchema)) {
+        ctx.addDifference(UNEVALUATED_ITEMS_NARROWED);
+      } else if (!(originalUneval instanceof EmptySchema)
+          && updateUneval instanceof EmptySchema) {
+        ctx.addDifference(UNEVALUATED_ITEMS_EXTENDED);
+      } else {
+        SchemaDiff.compare(ctx, originalUneval, updateUneval);
       }
     }
   }

@@ -60,6 +60,10 @@ import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.REQUIR
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.REQUIRED_ATTRIBUTE_WITH_DEFAULT_ADDED;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.REQUIRED_PROPERTY_ADDED_TO_UNOPEN_CONTENT_MODEL;
 import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.REQUIRED_PROPERTY_WITH_DEFAULT_ADDED_TO_UNOPEN_CONTENT_MODEL;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_PROPERTIES_ADDED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_PROPERTIES_EXTENDED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_PROPERTIES_NARROWED;
+import static io.confluent.kafka.schemaregistry.json.diff.Difference.Type.UNEVALUATED_PROPERTIES_REMOVED;
 
 public class ObjectSchemaDiff {
   static void compare(final Context ctx, final ObjectSchema original, final ObjectSchema update) {
@@ -67,6 +71,7 @@ public class ObjectSchemaDiff {
     compareProperties(ctx, original, update);
     compareDependencies(ctx, original, update);
     compareAdditionalProperties(ctx, original, update);
+    compareUnevaluatedProperties(ctx, original, update);
     compareAttributes(ctx, original, update);
   }
 
@@ -119,6 +124,45 @@ public class ObjectSchemaDiff {
             original.getSchemaOfAdditionalProperties(),
             update.getSchemaOfAdditionalProperties()
         );
+      }
+    }
+  }
+
+  private static void compareUnevaluatedProperties(
+      final Context ctx, final ObjectSchema original, final ObjectSchema update
+  ) {
+    Schema originalUneval = getUnevaluatedProperties(original);
+    Schema updateUneval = getUnevaluatedProperties(update);
+    if (originalUneval == null && updateUneval == null) {
+      return;
+    }
+    try (Context.PathScope pathScope = ctx.enterPath("unevaluatedProperties")) {
+      if (originalUneval == null) {
+        // unevaluatedProperties added (was absent, now present)
+        if (updateUneval instanceof FalseSchema) {
+          ctx.addDifference(UNEVALUATED_PROPERTIES_REMOVED);
+        } else {
+          ctx.addDifference(UNEVALUATED_PROPERTIES_NARROWED);
+        }
+      } else if (updateUneval == null) {
+        // unevaluatedProperties removed (was present, now absent)
+        if (originalUneval instanceof FalseSchema) {
+          ctx.addDifference(UNEVALUATED_PROPERTIES_ADDED);
+        } else {
+          ctx.addDifference(UNEVALUATED_PROPERTIES_EXTENDED);
+        }
+      } else if (originalUneval instanceof FalseSchema && !(updateUneval instanceof FalseSchema)) {
+        ctx.addDifference(UNEVALUATED_PROPERTIES_ADDED);
+      } else if (!(originalUneval instanceof FalseSchema) && updateUneval instanceof FalseSchema) {
+        ctx.addDifference(UNEVALUATED_PROPERTIES_REMOVED);
+      } else if (originalUneval instanceof EmptySchema
+          && !(updateUneval instanceof EmptySchema)) {
+        ctx.addDifference(UNEVALUATED_PROPERTIES_NARROWED);
+      } else if (!(originalUneval instanceof EmptySchema)
+          && updateUneval instanceof EmptySchema) {
+        ctx.addDifference(UNEVALUATED_PROPERTIES_EXTENDED);
+      } else {
+        SchemaDiff.compare(ctx, originalUneval, updateUneval);
       }
     }
   }
