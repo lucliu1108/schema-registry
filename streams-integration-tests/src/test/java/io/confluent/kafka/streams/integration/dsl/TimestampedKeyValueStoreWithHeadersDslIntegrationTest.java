@@ -53,7 +53,6 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StoreQueryParameters;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -68,12 +67,14 @@ import org.apache.kafka.streams.state.TimestampedKeyValueStoreWithHeaders;
 import org.apache.kafka.streams.state.ValueTimestampHeaders;
 import org.apache.kafka.streams.state.internals.CompositeReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.internals.StateStoreProvider;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * DSL integration test for {@link TimestampedKeyValueStoreWithHeaders}.
  */
+@Tag("IntegrationTest")
 public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends ClusterTestHarness {
 
     private static final String KEY_SCHEMA_JSON =
@@ -220,6 +221,33 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals(1L, helloResult.value(), "IQv1: hello count should be 1");
             assertKeySchemaIdHeader(helloResult.headers(), "IQv1 get hello");
 
+            // Tombstone: sending a null value to a KStream with flatMapValues causes
+            // a NullPointerException, which crashes the streams instance into ERROR state.
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("hello"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            assertEquals(KafkaStreams.State.ERROR, streams.state(),
+                "Streams should be in ERROR state after null value hits flatMapValues");
+
+            // Changelog verification (must run before streams crashes — use records already written)
+            String changelogTopic = "dsl-count-supplier-test" + suffix + "-" + storeName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "dsl-count-changelog-consumer" + suffix, 8);
+            assertTrue(changelogRecords.size() >= 8,
+                "Changelog should have at least 8 records, got " + changelogRecords.size());
+
+            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+                if (record.value() != null) {
+                    assertKeySchemaIdHeader(record.headers(),
+                        "changelog " + record.key().get("word"));
+                }
+            }
+
         } finally {
             closeStreams(streams);
         }
@@ -240,18 +268,13 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
         GenericAvroSerde keySerde = createKeySerde();
         GenericAvroSerde valueSerde = createValueSerde();
+        
         GenericAvroSerde aggSerde = createValueSerde();
 
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .stream(inputTopic, Consumed.with(keySerde, valueSerde))
-            .flatMapValues(value ->
-                Arrays.asList(value.get("line").toString().toLowerCase().split("\\W+")))
-            .groupBy((key, word) -> {
-                GenericRecord wordKey = new GenericData.Record(keySchema);
-                wordKey.put("word", word);
-                return wordKey;
-            }, Grouped.with(keySerde, Serdes.String()))
+            .groupByKey(Grouped.with(keySerde, valueSerde))
             .aggregate(
                 () -> {
                     GenericRecord init = new GenericData.Record(aggSchema);
@@ -260,6 +283,10 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                     return init;
                 },
                 (key, value, agg) -> {
+                    // Null aggregation: returning null tombstones the key
+                    if ("DELETE".equals(value.get("line").toString())) {
+                        return null;
+                    }
                     GenericRecord updated = new GenericData.Record(aggSchema);
                     updated.put("word", key.get("word").toString());
                     updated.put("count", (long) agg.get("count") + 1L);
@@ -279,18 +306,25 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
+                // Send 3 records for "kafka", 2 for "streams", 1 for "hello"
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("key1"), createTextLine("hello kafka streams"))).get();
+                    createKey("kafka"), createTextLine("first"))).get();
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("key2"), createTextLine("all streams lead to kafka"))).get();
+                    createKey("kafka"), createTextLine("second"))).get();
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("key3"), createTextLine("join kafka summit"))).get();
+                    createKey("kafka"), createTextLine("third"))).get();
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("streams"), createTextLine("first"))).get();
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("streams"), createTextLine("second"))).get();
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("hello"), createTextLine("first"))).get();
                 producer.flush();
             }
 
-            // Without caching: 11 records. With caching: between 8 and 11.
-            int minExpected = 8;
-            int maxExpected = 11;
+            // Without caching: 6 records (one per input). With caching: 3 (deduplicated per key).
+            int minExpected = 3;
+            int maxExpected = 6;
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
                 consumeRecords(outputTopic, "dsl-aggregate-consumer" + suffix, maxExpected);
 
@@ -333,6 +367,55 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals(1L, helloResult.value().get("count"), "IQv1: hello count should be 1");
             assertSchemaIdHeaders(helloResult.headers(), "IQv1 get hello");
 
+            // Add a tombstone record for k1, which shouldn't work since "aggregate" operation skips null values.
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("hello"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            ValueTimestampHeaders<GenericRecord> helloAfterTombstone = store.get(createKey("hello"));
+            assertTrue(helloAfterTombstone != null && helloAfterTombstone.value() != null,
+                "IQv1: hello shouldn't be tombstoned");
+            assertEquals(1L, helloAfterTombstone.value().get("count"),
+                "IQv1: hello count should still be 1");
+
+            // Null aggregation: aggregator returns null for "DELETE" value, which tombstones the key
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("hello"), createTextLine("DELETE"))).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            // Re-fetch store reference in case of rebalance
+            store = streams.store(
+                StoreQueryParameters.fromNameAndType(storeName,
+                    new TimestampedKeyValueStoreWithHeadersType<>()));
+            ValueTimestampHeaders<GenericRecord> helloDeleted = store.get(createKey("hello"));
+            assertTrue(helloDeleted == null || helloDeleted.value() == null,
+                "IQv1: hello should be tombstoned after aggregator returned null");
+            // kafka and streams should still exist
+            ValueTimestampHeaders<GenericRecord> kafkaStill = store.get(createKey("kafka"));
+            assertNotNull(kafkaStill, "IQv1: kafka should still exist after hello null aggregation");
+            assertEquals(3L, kafkaStill.value().get("count"), "IQv1: kafka count should still be 3");
+
+            // Changelog verification
+            String changelogTopic = "dsl-aggregate-test" + suffix + "-" + storeName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "dsl-aggregate-changelog-consumer" + suffix, 6);
+            assertTrue(changelogRecords.size() >= 3,
+                "Changelog should have at least 3 records, got " + changelogRecords.size());
+
+            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(),
+                        "changelog " + record.key().get("word"));
+                }
+            }
         } finally {
             closeStreams(streams);
         }
@@ -358,7 +441,13 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
         builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
             .groupByKey(Grouped.with(keySerde, valueSerde))
             .reduce(
-                (oldValue, newValue) -> newValue,
+                (oldValue, newValue) -> {
+                    // Null aggregation: returning null from reducer tombstones the key
+                    if ("DELETE".equals(newValue.get("line").toString())) {
+                        return null;
+                    }
+                    return newValue;
+                },
                 Materialized.<GenericRecord, GenericRecord>as(
                         Stores.persistentTimestampedKeyValueStoreWithHeaders(storeName))
                     .withKeySerde(keySerde)
@@ -424,6 +513,63 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("only value", k2Result.value().get("line").toString(),
                 "IQv1: k2 should have its value");
             assertSchemaIdHeaders(k2Result.headers(), "IQv1 get k2");
+
+            // Add a tombstone record for k1, which shouldn't work since "reduce" operation skips null values.
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("k1"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            ValueTimestampHeaders<GenericRecord> k1Tombstoned = store.get(createKey("k1"));
+            assertTrue(k1Tombstoned != null && k1Tombstoned.value() != null, "IQv1: k1 shouldn't be tombstoned");
+            ValueTimestampHeaders<GenericRecord> k2Still = store.get(createKey("k2"));
+            assertNotNull(k2Still, "IQv1: k2 should still exist after k1 tombstone");
+            assertEquals("only value", k2Still.value().get("line").toString());
+
+            // Null aggregation: reducer returns null for "DELETE" value, which tombstones the key
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("k2"), createTextLine("DELETE"))).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            // Re-fetch store reference in case of rebalance
+            store = streams.store(
+                StoreQueryParameters.fromNameAndType(storeName,
+                    new TimestampedKeyValueStoreWithHeadersType<>()));
+            ValueTimestampHeaders<GenericRecord> k2Deleted = store.get(createKey("k2"));
+            assertTrue(k2Deleted == null || k2Deleted.value() == null,
+                "IQv1: k2 should be tombstoned after reducer returned null");
+            // k1 should still be unaffected
+            ValueTimestampHeaders<GenericRecord> k1StillExists = store.get(createKey("k1"));
+            assertNotNull(k1StillExists, "IQv1: k1 should still exist after k2 null aggregation");
+            assertEquals("second value", k1StillExists.value().get("line").toString());
+
+            // Changelog verification
+            String changelogTopic = "dsl-reduce-test" + suffix + "-" + storeName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "dsl-reduce-changelog-consumer" + suffix, 3);
+            assertTrue(changelogRecords.size() >= 2,
+                "Changelog should have at least 2 records (one per key), got "
+                    + changelogRecords.size());
+
+            // Verify non-tombstone changelog records have schema ID headers
+            Map<String, byte[]> changelogValues = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+                String key = record.key().get("word").toString();
+                changelogValues.put(key, record.value());
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(), "changelog " + key);
+                }
+            }
+            // Last changelog record for k1 should be a tombstone
+            assertNotNull(changelogValues.get("k1"), "Changelog: k1 should have a value");
+            assertNull(changelogValues.get("k2"), "Changelog: k2 shouldn't have a value");
 
         } finally {
             closeStreams(streams);
@@ -524,6 +670,40 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 "IQv1: streams line length should be 13");
             assertSchemaIdHeaders(kafkaResult.headers(), "IQv1 get streams");
 
+            // Tombstone: delete "hello" and verify it is removed from the store
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("hello"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            ValueTimestampHeaders<GenericRecord> helloTombstoned = store.get(createKey("hello"));
+            assertTrue(helloTombstoned == null || helloTombstoned.value() == null,
+                "IQv1: hello should be tombstoned");
+            ValueTimestampHeaders<GenericRecord> streamsStill = store.get(createKey("streams"));
+            assertNotNull(streamsStill, "IQv1: streams should still exist after hello tombstone");
+            assertEquals("kafka", streamsStill.value().get("firstWord").toString());
+
+            // Changelog verification
+            String changelogTopic = "dsl-mapvalues-test" + suffix + "-" + storeName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "dsl-mapvalues-changelog-consumer" + suffix, 3);
+            assertTrue(changelogRecords.size() >= 2,
+                "Changelog should have at least 2 records, got " + changelogRecords.size());
+
+            Map<String, byte[]> changelogValues = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+                String key = record.key().get("word").toString();
+                changelogValues.put(key, record.value());
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(), "changelog " + key);
+                }
+            }
+            assertNull(changelogValues.get("hello"), "Changelog: hello should end with tombstone");
+            assertNotNull(changelogValues.get("streams"), "Changelog: streams should have a value");
+
         } finally {
             closeStreams(streams);
         }
@@ -607,6 +787,40 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertTrue(shortResult == null || shortResult.value() == null,
                 "filter store: 'short' should be filtered out");
 
+            // Tombstone delete "long" and verify it is removed from the filter store
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("long"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            ValueTimestampHeaders<GenericRecord> longTombstoned = filterStore.get(createKey("long"));
+            assertTrue(longTombstoned == null || longTombstoned.value() == null,
+                "filter store: 'long' should be tombstoned");
+            ValueTimestampHeaders<GenericRecord> long2Still = filterStore.get(createKey("long2"));
+            assertNotNull(long2Still, "filter store: 'long2' should still exist");
+            assertSchemaIdHeaders(long2Still.headers(), "filter store: long2 after tombstone");
+
+            // Changelog verification for filter store
+            String changelogTopic = "dsl-filter-test" + suffix + "-" + filterStoreName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "dsl-filter-changelog-consumer" + suffix, 3);
+            assertTrue(changelogRecords.size() >= 2,
+                "Changelog should have at least 2 records, got " + changelogRecords.size());
+
+            Map<String, byte[]> changelogValues = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+                String key = record.key().get("word").toString();
+                changelogValues.put(key, record.value());
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(), "filter changelog " + key);
+                }
+            }
+            assertNull(changelogValues.get("long"), "Changelog: long should end with tombstone");
+            assertNotNull(changelogValues.get("long2"), "Changelog: long2 should have a value");
+
         } finally {
             closeStreams(streams);
         }
@@ -636,14 +850,29 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
         GenericAvroSerde valueSerde = createValueSerde();
 
         StreamsBuilder builder = new StreamsBuilder();
+//        KTable<GenericRecord, GenericRecord> namesTable =
+//            builder.table(namesTopic, Consumed.with(keySerde, valueSerde));
         KTable<GenericRecord, GenericRecord> namesTable =
-            builder.table(namesTopic, Consumed.with(keySerde, valueSerde));
+            builder.table(namesTopic, Consumed.with(keySerde, valueSerde),
+                Materialized.<GenericRecord, GenericRecord>as(
+                        Stores.persistentTimestampedKeyValueStoreWithHeaders("names-store"))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde));
+//        KTable<GenericRecord, GenericRecord> agesTable =
+//            builder.table(agesTopic, Consumed.with(keySerde, valueSerde));
         KTable<GenericRecord, GenericRecord> agesTable =
-            builder.table(agesTopic, Consumed.with(keySerde, valueSerde));
+            builder.table(agesTopic, Consumed.with(keySerde, valueSerde),
+                Materialized.<GenericRecord, GenericRecord>as(
+                        Stores.persistentTimestampedKeyValueStoreWithHeaders("ages-store"))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde));
 
-        // inner join
+        // inner join (returns null when age is "0" to test null join result)
         namesTable.join(agesTable,
                 (name, age) -> {
+                    if ("0".equals(age.get("line").toString())) {
+                        return null;  // null join result tombstones the key
+                    }
                     GenericRecord joined = new GenericData.Record(valueSchema);
                     joined.put("line", name.get("line") + ", age " + age.get("line"));
                     return joined;
@@ -816,6 +1045,261 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("Carol White, age unknown", carolOuter.value().get("line").toString());
             assertSchemaIdHeaders(carolOuter.headers(), "IQv1 outer join get carol");
 
+            // Tombstone: delete alice's age and verify join stores update
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(agesTopic,
+                    createKey("alice"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            // Inner join: alice should be removed (no age = no match)
+            ValueTimestampHeaders<GenericRecord> aliceInnerTombstoned = store.get(createKey("alice"));
+            assertTrue(aliceInnerTombstoned == null || aliceInnerTombstoned.value() == null,
+                "IQv1 inner join: alice should be removed after age tombstone");
+            ValueTimestampHeaders<GenericRecord> bobInnerStill = store.get(createKey("bob"));
+            assertNotNull(bobInnerStill, "IQv1 inner join: bob should still exist");
+            assertEquals("Bob Jones, age 25", bobInnerStill.value().get("line").toString());
+
+            // Left join: alice should still exist but with "unknown" age
+            ValueTimestampHeaders<GenericRecord> aliceLeftTombstoned = leftJoinStore.get(createKey("alice"));
+            assertNotNull(aliceLeftTombstoned, "IQv1 left join: alice should still exist");
+            assertEquals("Alice Smith, age unknown", aliceLeftTombstoned.value().get("line").toString(),
+                "IQv1 left join: alice age should be unknown after tombstone");
+            assertSchemaIdHeaders(aliceLeftTombstoned.headers(), "IQv1 left join tombstone get alice");
+
+            // Outer join: alice should still exist but with "unknown" age
+            ValueTimestampHeaders<GenericRecord> aliceOuterTombstoned = outerJoinStore.get(createKey("alice"));
+            assertNotNull(aliceOuterTombstoned, "IQv1 outer join: alice should still exist");
+            assertEquals("Alice Smith, age unknown", aliceOuterTombstoned.value().get("line").toString(),
+                "IQv1 outer join: alice age should be unknown after tombstone");
+            assertSchemaIdHeaders(aliceOuterTombstoned.headers(), "IQv1 outer join tombstone get alice");
+
+            // Null join: send age "0" for bob, which makes the inner joiner return null
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(agesTopic,
+                    createKey("bob"), createTextLine("0"))).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            // Re-fetch store references in case of rebalance
+            store = streams.store(StoreQueryParameters.fromNameAndType(
+                innerJoinStoreName, new TimestampedKeyValueStoreWithHeadersType<>()));
+            leftJoinStore = streams.store(StoreQueryParameters.fromNameAndType(
+                leftJoinStoreName, new TimestampedKeyValueStoreWithHeadersType<>()));
+            outerJoinStore = streams.store(StoreQueryParameters.fromNameAndType(
+                outerJoinStoreName, new TimestampedKeyValueStoreWithHeadersType<>()));
+
+            // Inner join: bob should be tombstoned because joiner returned null for age "0"
+            ValueTimestampHeaders<GenericRecord> bobInnerNullJoin = store.get(createKey("bob"));
+            assertTrue(bobInnerNullJoin == null || bobInnerNullJoin.value() == null,
+                "IQv1 inner join: bob should be tombstoned after null join result");
+
+            // Left join: bob should still exist (left joiner doesn't return null for age "0")
+            ValueTimestampHeaders<GenericRecord> bobLeftNullJoin = leftJoinStore.get(createKey("bob"));
+            assertNotNull(bobLeftNullJoin, "IQv1 left join: bob should still exist after null inner join");
+            assertEquals("Bob Jones, age 0", bobLeftNullJoin.value().get("line").toString(),
+                "IQv1 left join: bob should have age 0");
+
+            // Outer join: bob should still exist
+            ValueTimestampHeaders<GenericRecord> bobOuterNullJoin = outerJoinStore.get(createKey("bob"));
+            assertNotNull(bobOuterNullJoin, "IQv1 outer join: bob should still exist after null inner join");
+            assertEquals("Bob Jones, age 0", bobOuterNullJoin.value().get("line").toString(),
+                "IQv1 outer join: bob should have age 0");
+
+            // Changelog verification for inner join store
+            String innerChangelogTopic = "dsl-join-test" + suffix + "-" + innerJoinStoreName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> innerChangelogRecords =
+                consumeChangelogRecords(innerChangelogTopic, "dsl-join-inner-changelog-consumer" + suffix, 3);
+            assertTrue(innerChangelogRecords.size() >= 2,
+                "Inner join changelog should have at least 2 records, got " + innerChangelogRecords.size());
+
+            Map<String, byte[]> innerChangelogValues = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, byte[]> record : innerChangelogRecords) {
+                String key = record.key().get("word").toString();
+                innerChangelogValues.put(key, record.value());
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(), "inner join changelog " + key);
+                }
+            }
+            // alice should be tombstoned in inner join changelog after age deletion
+            assertNull(innerChangelogValues.get("alice"),
+                "Inner join changelog: alice should end with tombstone");
+            // bob should be tombstoned in inner join changelog after null join result
+            assertNull(innerChangelogValues.get("bob"),
+                "Inner join changelog: bob should end with tombstone after null join");
+
+            // Changelog verification for left join store
+            String leftChangelogTopic = "dsl-join-test" + suffix + "-" + leftJoinStoreName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> leftChangelogRecords =
+                consumeChangelogRecords(leftChangelogTopic, "dsl-join-left-changelog-consumer" + suffix, 4);
+            assertTrue(leftChangelogRecords.size() >= 3,
+                "Left join changelog should have at least 3 records, got " + leftChangelogRecords.size());
+
+            // Verify non-tombstone records have headers
+            for (ConsumerRecord<GenericRecord, byte[]> record : leftChangelogRecords) {
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(), "left join changelog " + record.key().get("word"));
+                }
+            }
+
+        } finally {
+            closeStreams(streams);
+        }
+    }
+
+    /**
+     * Verifies that headers survive through toStream() and merge() operations.
+     * Two KTables are materialized with headers-aware stores, converted to streams,
+     * merged, and the output is checked for schema ID headers.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void shouldMergeStreamsWithHeaders(boolean cachingEnabled) throws Exception {
+        String suffix = cachingEnabled ? "-cached" : "-uncached";
+        String inputTopic1 = "dsl-merge-input1" + suffix;
+        String inputTopic2 = "dsl-merge-input2" + suffix;
+        String outputTopic = "dsl-merge-output" + suffix;
+        String storeName1 = "dsl-merge-store1" + suffix;
+        String storeName2 = "dsl-merge-store2" + suffix;
+
+        createTopics(inputTopic1, inputTopic2, outputTopic);
+
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        KTable<GenericRecord, GenericRecord> table1 = builder.table(inputTopic1,
+            Consumed.with(keySerde, valueSerde),
+            Materialized.<GenericRecord, GenericRecord>as(
+                    Stores.persistentTimestampedKeyValueStoreWithHeaders(storeName1))
+                .withKeySerde(keySerde)
+                .withValueSerde(valueSerde));
+
+        KTable<GenericRecord, GenericRecord> table2 = builder.table(inputTopic2,
+            Consumed.with(keySerde, valueSerde),
+            Materialized.<GenericRecord, GenericRecord>as(
+                    Stores.persistentTimestampedKeyValueStoreWithHeaders(storeName2))
+                .withKeySerde(keySerde)
+                .withValueSerde(valueSerde));
+
+        table1.toStream()
+            .merge(table2.toStream())
+            .to(outputTopic, Produced.with(keySerde, valueSerde));
+
+        KafkaStreams streams = null;
+        try {
+            streams = startStreamsAndAwaitRunning(
+                builder.build(), "dsl-merge-test" + suffix, cachingEnabled);
+
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic1,
+                    createKey("alice"), createTextLine("alice table 1"))).get();
+                producer.send(new ProducerRecord<>(inputTopic1,
+                    createKey("bob"), createTextLine("bob table 1"))).get();
+                producer.send(new ProducerRecord<>(inputTopic2,
+                    createKey("bob"), createTextLine("bob table 2"))).get();
+                producer.send(new ProducerRecord<>(inputTopic2,
+                    createKey("carol"), createTextLine("carol table 2"))).get();
+                producer.send(new ProducerRecord<>(inputTopic2,
+                    createKey("dave"), createTextLine("dave table 2"))).get();
+                producer.send(new ProducerRecord<>(inputTopic1,
+                    createKey("alice"), createTextLine("alice table 1 again"))).get();
+                producer.flush();
+            }
+
+            List<ConsumerRecord<GenericRecord, GenericRecord>> results =
+                consumeRecords(outputTopic, "dsl-merge-consumer" + suffix, 6);
+
+            assertEquals(6, results.size(), "Should have 5 merged records");
+
+            Map<String, String> mergedValues = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> record : results) {
+                String key = record.key().get("word").toString();
+                mergedValues.put(key, record.value().get("line").toString());
+                assertSchemaIdHeaders(record.headers(), "merge output " + key);
+            }
+            assertEquals("alice table 1 again", mergedValues.get("alice"));
+            assertEquals("bob table 2", mergedValues.get("bob"));
+            assertEquals("carol table 2", mergedValues.get("carol"));
+            assertEquals("dave table 2", mergedValues.get("dave"));
+
+            // IQv1 verification for both stores
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store1 =
+                streams.store(StoreQueryParameters.fromNameAndType(
+                    storeName1, new TimestampedKeyValueStoreWithHeadersType<>()));
+            assertNotNull(store1, "Store1 should be accessible via IQv1");
+
+            // verify store 1
+            ValueTimestampHeaders<GenericRecord> aliceResult = store1.get(createKey("alice"));
+            assertNotNull(aliceResult, "IQv1: alice should exist in store1");
+            assertEquals("alice table 1 again", aliceResult.value().get("line").toString());
+            assertSchemaIdHeaders(aliceResult.headers(), "IQv1 store1 get alice");
+
+            ValueTimestampHeaders<GenericRecord> bobResult1 = store1.get(createKey("bob"));
+            assertNotNull(aliceResult, "IQv1: bob should exist in store1");
+            assertEquals("bob table 1", bobResult1.value().get("line").toString());
+            assertSchemaIdHeaders(aliceResult.headers(), "IQv1 store1 get bob");
+
+            // verify store 2
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store2 =
+                streams.store(StoreQueryParameters.fromNameAndType(
+                    storeName2, new TimestampedKeyValueStoreWithHeadersType<>()));
+            assertNotNull(store2, "Store2 should be accessible via IQv1");
+
+            ValueTimestampHeaders<GenericRecord> bobResult2 = store2.get(createKey("bob"));
+            assertNotNull(aliceResult, "IQv1: bob should exist in store1");
+            assertEquals("bob table 2", bobResult2.value().get("line").toString());
+            assertSchemaIdHeaders(aliceResult.headers(), "IQv1 store1 get bob");
+
+            ValueTimestampHeaders<GenericRecord> carolResult = store2.get(createKey("carol"));
+            assertNotNull(carolResult, "IQv1: carol should exist in store2");
+            assertEquals("carol table 2", carolResult.value().get("line").toString());
+            assertSchemaIdHeaders(carolResult.headers(), "IQv1 store2 get carol");
+
+            ValueTimestampHeaders<GenericRecord> daveResult = store2.get(createKey("dave"));
+            assertNotNull(daveResult, "IQv1: dave should exist in store2");
+            assertEquals("dave table 2", daveResult.value().get("line").toString());
+            assertSchemaIdHeaders(carolResult.headers(), "IQv1 store2 get carol");
+
+            // Tombstone: delete alice from table1 and verify it is removed from store1
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic1,
+                    createKey("alice"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            Thread.sleep(2000);
+
+            ValueTimestampHeaders<GenericRecord> aliceTombstoned = store1.get(createKey("alice"));
+            assertTrue(aliceTombstoned == null || aliceTombstoned.value() == null,
+                "IQv1: alice should be tombstoned from store1");
+            ValueTimestampHeaders<GenericRecord> bobStill = store1.get(createKey("bob"));
+            assertNotNull(bobStill, "IQv1: bob should still exist in store1");
+            assertEquals("bob table 1", bobStill.value().get("line").toString());
+
+            // Changelog verification for store1
+            String changelogTopic1 = "dsl-merge-test" + suffix + "-" + storeName1 + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic1, "dsl-merge-changelog-consumer" + suffix, 3);
+            assertTrue(changelogRecords.size() >= 2,
+                "Store1 changelog should have at least 2 records, got " + changelogRecords.size());
+
+            Map<String, byte[]> changelogValues = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+                String key = record.key().get("word").toString();
+                changelogValues.put(key, record.value());
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(), "merge changelog " + key);
+                }
+            }
+            assertNull(changelogValues.get("alice"), "Changelog: alice should end with tombstone");
+            assertNotNull(changelogValues.get("bob"), "Changelog: bob should have a value");
+
         } finally {
             closeStreams(streams);
         }
@@ -857,6 +1341,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, appId);
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
         props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
+//        props.put(StreamsConfig.DSL_STORE_FORMAT_CONFIG, StreamsConfig.DSL_STORE_FORMAT_HEADERS);
         if (cachingEnabled) {
             props.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 100);
         } else {
@@ -989,6 +1474,36 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             while (results.size() < expectedCount && System.currentTimeMillis() < deadline) {
                 ConsumerRecords<GenericRecord, GenericRecord> records = consumer.poll(Duration.ofMillis(500));
                 for (ConsumerRecord<GenericRecord, GenericRecord> record : records) {
+                    results.add(record);
+                }
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Consumes records from a changelog topic using byte[] value deserializer
+     * (since changelog values are in internal ValueAndTimestamp format).
+     * Returns records so callers can verify headers and tombstones.
+     */
+    private List<ConsumerRecord<GenericRecord, byte[]>> consumeChangelogRecords(
+        String changelogTopic, String groupId, int expectedCount) {
+        List<ConsumerRecord<GenericRecord, byte[]>> results = new ArrayList<>();
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
+            org.apache.kafka.common.serialization.ByteArrayDeserializer.class.getName());
+        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
+        props.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, false);
+        try (KafkaConsumer<GenericRecord, byte[]> consumer = new KafkaConsumer<>(props)) {
+            consumer.subscribe(Collections.singletonList(changelogTopic));
+            long deadline = System.currentTimeMillis() + 30_000;
+            while (results.size() < expectedCount && System.currentTimeMillis() < deadline) {
+                ConsumerRecords<GenericRecord, byte[]> records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<GenericRecord, byte[]> record : records) {
                     results.add(record);
                 }
             }
