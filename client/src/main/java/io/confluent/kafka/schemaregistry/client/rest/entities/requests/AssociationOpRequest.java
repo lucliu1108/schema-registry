@@ -23,6 +23,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.confluent.kafka.schemaregistry.client.rest.entities.ErrorMessage;
+import io.confluent.kafka.schemaregistry.client.rest.entities.LifecyclePolicy;
 import io.confluent.kafka.schemaregistry.utils.QualifiedSubject;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.IllegalPropertyException;
 import io.confluent.kafka.schemaregistry.utils.JacksonMapper;
@@ -177,6 +178,12 @@ public class AssociationOpRequest {
             && !createOrUpdateOp.getSubject().equals(defaultSubject)) {
           throw new IllegalPropertyException(
               "subject", "frozen associations must use subject '" + defaultSubject + "'");
+        }
+        // WEAK associations cannot use the default subject format
+        if (createOrUpdateOp.getLifecycle() == LifecyclePolicy.WEAK
+            && createOrUpdateOp.getSubject().equals(defaultSubject)) {
+          throw new IllegalPropertyException(
+              "subject", "WEAK associations cannot use subject '" + defaultSubject + "'");
         }
         // Check frozen consistency within the request
         if (createOrUpdateOp.getFrozen() != null) {
