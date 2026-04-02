@@ -186,6 +186,10 @@ public class SchemaTranslator extends SchemaVisitor<SchemaTranslator.SchemaConte
     if (ctx == null) {
       return new SchemaContext(
           schema, CombinedSchemaExt.allOf(Collections.emptyList()).isGenerated(true));
+    } else if (ctx.source() != schema) {
+      // if the accumulated result doesn't have this schema as its source, re-wrap it
+      // this can happen when the schema has a single child, so accumulate/join is not called
+      ctx = new SchemaContext(schema, ctx.schemaBuilder());
     }
     org.everit.json.schema.Schema ctxSchema = ctx.schema();
     if (isGeneratedAll(ctxSchema)) {
@@ -752,6 +756,7 @@ public class SchemaTranslator extends SchemaVisitor<SchemaTranslator.SchemaConte
 
     @Override
     public void close() {
+      Map<Schema, org.everit.json.schema.Schema> buildCache = new IdentityHashMap<>();
       while (!SchemaTranslator.this.refMapping.isEmpty()) {
         Pair<org.everit.json.schema.ReferenceSchema, Schema> pair =
             SchemaTranslator.this.refMapping.poll();
@@ -761,7 +766,11 @@ public class SchemaTranslator extends SchemaVisitor<SchemaTranslator.SchemaConte
         org.everit.json.schema.Schema.Builder<?> referredSchema =
             SchemaTranslator.this.schemaMapping.get(oldReferredSchema);
         if (referredSchema != null) {
-          refSchema.setReferredSchema(referredSchema.build());
+          // Cache build() results so that all $refs to the same definition resolve to the
+          // same Java object. Without this, each build() call creates a distinct object,
+          // which breaks IdentityHashMap-based cycle detection in SchemaDiff.
+          refSchema.setReferredSchema(
+              buildCache.computeIfAbsent(oldReferredSchema, k -> referredSchema.build()));
         } else {
           SchemaContext ctx = oldReferredSchema.accept(SchemaTranslator.this);
           assert ctx != null;

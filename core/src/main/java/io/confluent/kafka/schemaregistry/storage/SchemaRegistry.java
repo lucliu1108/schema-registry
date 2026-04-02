@@ -21,6 +21,7 @@ import io.confluent.kafka.schemaregistry.client.rest.RestService;
 
 import io.confluent.kafka.schemaregistry.client.rest.entities.Association;
 import io.confluent.kafka.schemaregistry.client.rest.entities.LifecyclePolicy;
+import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchGetRequest;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchRequest;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchResponse;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationCreateOrUpdateRequest;
@@ -365,6 +366,12 @@ public interface SchemaRegistry extends SchemaVersionFetcher {
     return null;
   }
 
+  default AssociationBatchResponse batchGetAssociations(
+      boolean includeSchemas, AssociationBatchGetRequest request)
+      throws SchemaRegistryException {
+    return null;
+  }
+
   default AssociationBatchResponse mutateAssociations(
       String context, boolean dryRun, AssociationBatchRequest request) {
     return null;
@@ -412,6 +419,13 @@ public interface SchemaRegistry extends SchemaVersionFetcher {
       String resourceName, String resourceNamespace,
       String resourceType, List<String> associationTypes, LifecyclePolicy lifecycle)
       throws SchemaRegistryException {
+    return null;
+  }
+
+  default List<Association> getAssociationsByResourceNamespace(
+          String resourceNamespace,
+          String resourceType, List<String> associationTypes, LifecyclePolicy lifecycle)
+          throws SchemaRegistryException {
     return null;
   }
 

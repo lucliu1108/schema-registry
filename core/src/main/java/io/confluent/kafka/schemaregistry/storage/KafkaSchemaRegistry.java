@@ -43,9 +43,12 @@ import io.confluent.kafka.schemaregistry.client.rest.entities.ErrorMessage;
 import io.confluent.kafka.schemaregistry.client.rest.entities.LifecyclePolicy;
 import io.confluent.kafka.schemaregistry.client.rest.entities.Schema;
 import io.confluent.kafka.schemaregistry.client.rest.entities.SchemaString;
+import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchGetRequest;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchRequest;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchResponse;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationCreateOrUpdateInfo;
+import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationGetRequest;
+import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationInfo;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationDeleteOp;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationOp;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationOpRequest;
@@ -812,7 +815,9 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       while (schemasToBeDeleted.hasNext()) {
         deleteWatermarkVersion = schemasToBeDeleted.next().getVersion();
         SchemaKey key = new SchemaKey(subject, deleteWatermarkVersion);
-        if (!getReferencedBy(key, permanentDelete).isEmpty()) {
+        Set<String> referencedBySubjects = getReferencedBySubjects(key, permanentDelete);
+        referencedBySubjects.remove(subject);
+        if (!referencedBySubjects.isEmpty()) {
           throw new ReferenceExistsException(key.toString());
         }
         if (permanentDelete) {
@@ -829,8 +834,9 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         DeleteSubjectValue value = new DeleteSubjectValue(subject, deleteWatermarkVersion);
         kafkaStore.put(key, value);
       } else {
-        for (Integer version : deletedVersions) {
-          kafkaStore.put(new SchemaKey(subject, version), null);
+        // delete in descending order to account for intra-subject references
+        for (int i = deletedVersions.size() - 1; i >= 0; i--) {
+          kafkaStore.put(new SchemaKey(subject, deletedVersions.get(i)), null);
         }
         if (getMode(subject) != null) {
           deleteMode(subject);
@@ -951,22 +957,93 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
     }
   }
 
+  public AssociationBatchResponse batchGetAssociations(
+      boolean includeSchemas, AssociationBatchGetRequest request)
+      throws SchemaRegistryException {
+    List<AssociationResult> results = new ArrayList<>();
+    for (AssociationGetRequest query : request.getRequests()) {
+      try {
+        query.validate();
+        String resourceType = query.getResourceType();
+        if (resourceType == null || resourceType.isEmpty()) {
+          resourceType = "topic";
+        }
+        List<String> associationTypes = query.getAssociationTypes();
+        if (associationTypes == null) {
+          associationTypes = Collections.emptyList();
+        }
+        String resourceName = query.getResourceName();
+        String resourceNamespace = query.getResourceNamespace();
+        String resourceId = query.getResourceId();
+        List<Association> associations;
+        if (resourceId != null && !resourceId.isEmpty()) {
+          associations = getAssociationsByResourceId(
+              resourceId, resourceType, associationTypes, query.getLifecycle());
+        } else {
+          associations = getAssociationsByResourceName(
+              resourceName, resourceNamespace,
+              resourceType, associationTypes, query.getLifecycle());
+        }
+        if (!associations.isEmpty()) {
+          Association first = associations.get(0);
+          if (resourceName == null) {
+            resourceName = first.getResourceName();
+          }
+          if (resourceNamespace == null) {
+            resourceNamespace = first.getResourceNamespace();
+          }
+          if (resourceId == null) {
+            resourceId = first.getResourceId();
+          }
+        }
+        Map<String, Schema> schemas = Collections.emptyMap();
+        if (includeSchemas) {
+          schemas = new HashMap<>();
+          for (Association association : associations) {
+            Schema schema = getLatestVersion(association.getSubject());
+            if (schema != null) {
+              schemas.put(association.getAssociationType(), schema);
+            }
+          }
+        }
+        results.add(new AssociationResult(null,
+            Association.toAssociationResponse(
+                resourceName, resourceNamespace,
+                resourceId, resourceType,
+                associations, schemas)));
+      } catch (Exception e) {
+        ErrorMessage errMsg = new ErrorMessage(
+            RestServerErrorException.DEFAULT_ERROR_CODE,
+            "Error while getting associations: " + e.getMessage());
+        results.add(new AssociationResult(errMsg, null));
+      }
+    }
+    return new AssociationBatchResponse(results);
+  }
+
   public AssociationBatchResponse mutateAssociations(
       String context, boolean dryRun, AssociationBatchRequest request) {
     List<AssociationResult> results = new ArrayList<>();
     for (AssociationOpRequest req : request.getRequests()) {
+      if (req.getError() != null) {
+        results.add(new AssociationResult(req.getError(), null));
+        continue;
+      }
       kafkaStore.lockFor(context).lock();
       try {
         req.validate(dryRun);
+        Map<String, Schema> schemas = new HashMap<>();
         for (AssociationOp op : req.getAssociations()) {
           switch (op.getType()) {
             case CREATE:
-              createAssociation(context, dryRun,
+              AssociationResponse createResp = createAssociation(context, dryRun,
                   new AssociationCreateOrUpdateRequest(req, op));
+              collectSchemas(createResp, schemas);
               break;
             case UPSERT:
-              createOrUpdateAssociation(context, dryRun,
+              AssociationResponse upsertResp = createOrUpdateAssociation(context, dryRun,
                   new AssociationCreateOrUpdateRequest(req, op));
+              collectSchemas(upsertResp, schemas);
               break;
             case DELETE:
               deleteAssociations(
@@ -989,7 +1066,7 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
             Association.toAssociationResponse(
                 req.getResourceName(), req.getResourceNamespace(),
                 req.getResourceId(), req.getResourceType(),
-                associations, Collections.emptyMap())));
+                associations, schemas)));
       } catch (IllegalPropertyException e) {
         ErrorMessage errMsg = new ErrorMessage(
             INVALID_ASSOCIATION_ERROR_CODE,
@@ -1068,6 +1145,16 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       } else {
         throw new UnknownLeaderException("Create associations request failed since leader is "
             + "unknown");
+      }
+    }
+  }
+
+  private void collectSchemas(AssociationResponse response, Map<String, Schema> schemas) {
+    if (response != null && response.getAssociations() != null) {
+      for (AssociationInfo info : response.getAssociations()) {
+        if (info.getSchema() != null) {
+          schemas.put(info.getAssociationType(), info.getSchema());
+        }
       }
     }
   }
@@ -1455,6 +1542,58 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       throw new SchemaRegistryStoreException(
           "Error while retrieving schema from the backend Kafka"
               + " store", e);
+    }
+    Collections.sort(associations);
+    return associations;
+  }
+
+  public List<Association> getAssociationsByResourceNamespace(
+          String resourceNamespace,
+          String resourceType, List<String> associationTypes, LifecyclePolicy lifecycle)
+          throws SchemaRegistryException {
+    String tenant = tenant();
+    List<Association> associations = new ArrayList<>();
+    if (resourceNamespace == null) {
+      return associations;
+    }
+    String minResourceName = String.valueOf(Character.MIN_VALUE);
+    String maxResourceName = String.valueOf(Character.MAX_VALUE);
+    String minResourceNamespace = !resourceNamespace.equals(RESOURCE_WILDCARD)
+            ? resourceNamespace
+            : String.valueOf(Character.MIN_VALUE);
+    String maxResourceNamespace = !resourceNamespace.equals(RESOURCE_WILDCARD)
+            ? resourceNamespace
+            : String.valueOf(Character.MAX_VALUE);
+    String minResourceType = resourceType != null
+            ? resourceType
+            : String.valueOf(Character.MIN_VALUE);
+    String maxResourceType = resourceType != null
+            ? resourceType
+            : String.valueOf(Character.MAX_VALUE);
+    String minAssociationType = String.valueOf(Character.MIN_VALUE);
+    String maxAssociationType = String.valueOf(Character.MAX_VALUE);
+    String minSubject = String.valueOf(Character.MIN_VALUE);
+    String maxSubject = String.valueOf(Character.MAX_VALUE);
+
+    AssociationKey key1 = new AssociationKey(tenant, minResourceName, minResourceNamespace,
+            minResourceType, minAssociationType, minSubject);
+    AssociationKey key2 = new AssociationKey(tenant, maxResourceName, maxResourceNamespace,
+            maxResourceType, maxAssociationType, maxSubject);
+    try (CloseableIterator<SchemaRegistryValue> iter = kafkaStore.getAll(key1, key2)) {
+      while (iter.hasNext()) {
+        AssociationValue value = (AssociationValue) iter.next();
+        if ((associationTypes == null || associationTypes.isEmpty()
+                || associationTypes.contains(value.getAssociationType()))
+                && (lifecycle == null || value.getLifecycle().toLifecyclePolicy() == lifecycle)
+                && (resourceNamespace.equals(RESOURCE_WILDCARD)
+                || value.getResourceNamespace().equals(resourceNamespace))) {
+          associations.add(value.toAssociationEntity());
+        }
+      }
+    } catch (StoreException e) {
+      throw new SchemaRegistryStoreException(
+              "Error while retrieving schema from the backend Kafka"
+                      + " store", e);
     }
     Collections.sort(associations);
     return associations;
