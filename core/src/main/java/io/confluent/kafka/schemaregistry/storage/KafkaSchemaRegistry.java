@@ -1166,7 +1166,7 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
 
   public AssociationResponse createOrUpdateAssociation(
       String context, boolean dryRun, AssociationCreateOrUpdateRequest request,
-      boolean isCreateOnly)
+      boolean isCreate)
       throws SchemaRegistryException {
     // Replace aliases and check for read-only mode
     String defaultSubjectPrefix = QualifiedSubject.CONTEXT_PREFIX + request.getResourceNamespace()
@@ -1282,7 +1282,7 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         continue;
       }
       if (association.isEquivalent(info)) {
-        if (isCreateOnly && info.getSchema() != null) {
+        if (isCreate && info.getSchema() != null) {
           boolean normalize = Boolean.TRUE.equals(info.getNormalize());
           Schema oldSchema = lookUpSchemaUnderSubject(
               qualifiedSubject, new Schema(qualifiedSubject, info.getSchema()), normalize, false);
@@ -1295,7 +1295,7 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         assocTypesToSkip.add(info.getAssociationType());
         continue;
       }
-      if (isCreateOnly) {
+      if (isCreate) {
         throw new AssociationForResourceExistsException(
             association.getAssociationType(), association.getResourceName());
       }

@@ -140,7 +140,11 @@ public class AssociationCreateOrUpdateRequest {
     return JacksonMapper.INSTANCE.writeValueAsString(this);
   }
 
-  public void validate(boolean isCreateOnly, boolean dryRun) {
+  // Validates resource fields, then for each association info: validates the info
+  // (applying create+schema defaults if isCreate), defaults the subject to
+  // :.ns:name-type for STRONG associations, enforces that frozen associations use
+  // the default subject, and checks frozen consistency across all associations.
+  public void validate(boolean isCreate, boolean dryRun) {
     checkName(getResourceName(), "resourceName");
     checkName(getResourceNamespace(), "resourceNamespace");
     if (!dryRun && (getResourceId() == null || getResourceId().isEmpty())) {
@@ -159,7 +163,7 @@ public class AssociationCreateOrUpdateRequest {
     }
     Boolean frozenState = null;
     for (AssociationCreateOrUpdateInfo info : getAssociations()) {
-      info.validate(isCreateOnly, dryRun);
+      info.validate(isCreate, dryRun);
       String defaultSubject = QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
           + QualifiedSubject.CONTEXT_DELIMITER + resourceName
           + "-" + info.getAssociationType();

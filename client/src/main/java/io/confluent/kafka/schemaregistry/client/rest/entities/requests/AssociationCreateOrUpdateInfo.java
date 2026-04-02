@@ -151,11 +151,25 @@ public class AssociationCreateOrUpdateInfo {
     return JacksonMapper.INSTANCE.writeValueAsString(this);
   }
 
-  public void validate(boolean isCreateOnly, boolean dryRun) {
+  // Validates and applies defaults for three association models:
+  //
+  // 1. Frozen STRONG: Must provide a schema on create. Subject must be the default
+  //    format (:.ns:name-type) and is auto-defaulted if omitted.
+  //    CREATE+schema implies frozen STRONG automatically.
+  //
+  // 2. Non-frozen STRONG: Schema is optional. Subject defaults to :.ns:name-type
+  //    if omitted. Can be created without a schema if the subject already has one.
+  //
+  // 3. WEAK: Cannot have a schema or be frozen. Subject is required on create
+  //    (no defaulting). On upsert, subject defaults if omitted.
+  //
+  // Validation order: check user-provided subject, apply create+schema defaults,
+  // default associationType and lifecycle, then enforce lifecycle-specific rules.
+  public void validate(boolean isCreate, boolean dryRun) {
     if (getSubject() != null) {
       checkSubject(getSubject());
     }
-    if (isCreateOnly && getSchema() != null) {
+    if (isCreate && getSchema() != null) {
       if (getLifecycle() == LifecyclePolicy.WEAK) {
         throw new IllegalPropertyException(
             "lifecycle", "cannot be WEAK when schema is provided for create");
@@ -189,7 +203,7 @@ public class AssociationCreateOrUpdateInfo {
         throw new IllegalPropertyException(
             "frozen", "association with lifecycle of WEAK cannot be frozen");
       }
-      if (isCreateOnly && getSubject() == null) {
+      if (isCreate && getSubject() == null) {
         throw new IllegalPropertyException(
             "subject", "must be provided for WEAK associations");
       }

@@ -140,6 +140,10 @@ public class AssociationOpRequest {
     return JacksonMapper.INSTANCE.writeValueAsString(this);
   }
 
+  // Validates resource fields, then for each op: validates the op, defaults
+  // the subject to :.ns:name-type for STRONG associations, enforces that frozen
+  // associations use the default subject, and checks frozen consistency across
+  // all associations for the resource.
   public void validate(boolean dryRun) {
     checkName(getResourceName(), "resourceName");
     checkName(getResourceNamespace(), "resourceNamespace");

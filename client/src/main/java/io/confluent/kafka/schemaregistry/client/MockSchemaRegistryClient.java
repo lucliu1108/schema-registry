@@ -976,7 +976,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
   }
 
   private void checkExistingAssociationsByResourceId(AssociationCreateOrUpdateRequest request,
-                                                     boolean isCreateOnly)
+                                                     boolean isCreate)
           throws IOException, RestClientException {
     String resourceId = request.getResourceId();
     String resourceType = request.getResourceType();
@@ -1008,13 +1008,13 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
         continue;
       }
       if (existingAssociation.isEquivalent(associationInRequest)) {
-        if (isCreateOnly && schema != null && !schemaExistsInRegistry(subject, schema)) {
+        if (isCreate && schema != null && !schemaExistsInRegistry(subject, schema)) {
           throw new RestClientException(String.format(
                   "An association of type '%s' already exists for resource '%s",
                   associationType, resourceId), 422, 42212);
         }
       } else {
-        if (isCreateOnly) {
+        if (isCreate) {
           throw new RestClientException(String.format(
                   "An association of type '%s' already exists for resource '%s",
                   associationType, resourceId), 422, 42212);
@@ -1134,7 +1134,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
   }
 
   private synchronized AssociationResponse createOrUpdateAssociationHelper(
-      AssociationCreateOrUpdateRequest request, boolean isCreateOnly)
+      AssociationCreateOrUpdateRequest request, boolean isCreate)
       throws IOException, RestClientException {
     // Check that association types are unique
     checkAssociationTypeUniqueness(request);
@@ -1144,7 +1144,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
     checkSubjectExists(request);
 
     // Check whether the resource already has an association
-    checkExistingAssociationsByResourceId(request, isCreateOnly);
+    checkExistingAssociationsByResourceId(request, isCreate);
 
     // Check if subject can accept new association
     checkExistingAssociationsBySubject(request);
@@ -1207,8 +1207,8 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
   }
 
   private void validateAssociationRequest(
-      boolean isCreateOnly, AssociationCreateOrUpdateRequest request) {
-    request.validate(isCreateOnly, false);
+      boolean isCreate, AssociationCreateOrUpdateRequest request) {
+    request.validate(isCreate, false);
     // Validate each association
     for (AssociationCreateOrUpdateInfo associationCreateInfo : request.getAssociations()) {
       // Validate resource type and association type

@@ -142,6 +142,10 @@ public abstract class AssociationCreateOrUpdateOp extends AssociationOp {
         super.hashCode(), subject, associationType, lifecycle, frozen, schema, normalize);
   }
 
+  // Base validation for the batch path (shared by CREATE and UPSERT ops).
+  // Validates subject format, defaults associationType and lifecycle,
+  // and enforces WEAK restrictions (no schema, no frozen).
+  // CREATE-specific checks are in AssociationCreateOp.validate().
   public void validate(boolean dryRun) {
     if (getSubject() != null) {
       checkSubject(getSubject());
