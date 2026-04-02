@@ -375,6 +375,8 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     RegisterSchemaRequest keyRequest = new RegisterSchemaRequest();
     keyRequest.setSchema(allSchemas.get(0));
 
+    String defaultKeySubject = ":." + resourceNamespace + ":" + resourceName + "-key";
+
     // Test creating frozen association without schema fails
     AssociationCreateOrUpdateRequest noSchemaRequest = new AssociationCreateOrUpdateRequest(
         resourceName,
@@ -383,7 +385,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         "topic",
         ImmutableList.of(
             new AssociationCreateOrUpdateInfo(
-                subject2,
+                null,
                 "key",
                 LifecyclePolicy.STRONG,
                 true,  // Frozen
@@ -399,8 +401,9 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     );
 
     // Test creating frozen association when schemas already exist fails
-    // First register a schema in subject3
-    restApp.restClient.registerSchema(allSchemas.get(1), subject3);
+    // First register a schema in the default subject
+    restApp.restClient.registerSchema(allSchemas.get(1),
+        ":." + resourceNamespace + ":" + resourceName + "-key");
 
     RegisterSchemaRequest anotherSchemaRequest = new RegisterSchemaRequest();
     anotherSchemaRequest.setSchema(allSchemas.get(0));
@@ -412,7 +415,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         "topic",
         ImmutableList.of(
             new AssociationCreateOrUpdateInfo(
-                subject3,
+                null,
                 "key",
                 LifecyclePolicy.STRONG,
                 true,  // Frozen
@@ -435,7 +438,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         "topic",
         ImmutableList.of(
             new AssociationCreateOrUpdateInfo(
-                subject1,
+                null,
                 "key",
                 LifecyclePolicy.STRONG,
                 true,  // Frozen
@@ -456,7 +459,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         "topic",
         ImmutableList.of(
             new AssociationCreateOrUpdateInfo(
-                subject1,
+                defaultKeySubject,
                 "key",
                 LifecyclePolicy.WEAK,  // Try to change lifecycle
                 null,  // Not explicitly unfreezing
@@ -479,7 +482,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         "topic",
         ImmutableList.of(
             new AssociationCreateOrUpdateInfo(
-                subject1,
+                defaultKeySubject,
                 "key",
                 LifecyclePolicy.STRONG,
                 false,  // Try to unfreeze
@@ -506,7 +509,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
 
     // Verify association is deleted
     List<Association> associations = restApp.restClient.getAssociationsBySubject(
-        RestService.DEFAULT_REQUEST_PROPERTIES, subject1, "topic",
+        RestService.DEFAULT_REQUEST_PROPERTIES, defaultKeySubject, "topic",
         Collections.singletonList("key"), null, 0, -1);
     assertTrue(associations.isEmpty());
   }
@@ -1547,6 +1550,8 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     // Register schema for subject2 separately since WEAK upsert cannot have schema
     restApp.restClient.registerSchema(allSchemas.get(1), subject2);
 
+    String defaultKeySubject1 = ":." + resourceNamespace + ":" + resourceName1 + "-key";
+
     // Create initial frozen association (STRONG+frozen+schema is allowed)
     AssociationCreateOrUpdateRequest frozenRequest = new AssociationCreateOrUpdateRequest(
         resourceName1,
@@ -1555,7 +1560,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         "topic",
         ImmutableList.of(
             new AssociationCreateOrUpdateInfo(
-                subject1,
+                null,
                 "key",
                 LifecyclePolicy.STRONG,
                 true,  // Frozen
@@ -1576,7 +1581,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         "topic",
         ImmutableList.of(
             new AssociationUpsertOp(
-                subject1,
+                defaultKeySubject1,
                 "key",
                 LifecyclePolicy.WEAK,  // Try to change frozen - will fail
                 null,
@@ -2226,14 +2231,15 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
     schemaRequest.setSchema(allSchemas.get(0));
 
-    // Create with schema, no lifecycle/frozen specified
+    // Create with schema, no subject/lifecycle/frozen specified — defaults to frozen STRONG
     AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
         resourceName, resourceNamespace, resourceId, "topic",
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
-            "subject-frozen-test", "value", null, null, schemaRequest, null)));
+            null, "value", null, null, schemaRequest, null)));
 
     AssociationResponse response = restApp.restClient.createAssociation(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, request);
+    assertEquals(":.default:topic1-value", response.getAssociations().get(0).getSubject());
     assertEquals(LifecyclePolicy.STRONG, response.getAssociations().get(0).getLifecycle());
     assertTrue(response.getAssociations().get(0).isFrozen());
   }
