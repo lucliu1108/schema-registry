@@ -176,8 +176,8 @@ public class AssociationsRequestTest {
     op.validate(false);
   }
 
-  @Test(expected = IllegalPropertyException.class)
-  public void testUpsertOpWithSchemaAndDefaultLifecycleThrows() {
+  @Test
+  public void testUpsertOpWithSchemaAndDefaultLifecycleDoesNotThrow() {
     RegisterSchemaRequest schema = new RegisterSchemaRequest();
     schema.setSchema("{\"type\":\"string\"}");
     AssociationUpsertOp op = new AssociationUpsertOp(
@@ -203,8 +203,8 @@ public class AssociationsRequestTest {
     info.validate(false, false);
   }
 
-  @Test(expected = IllegalPropertyException.class)
-  public void testUpsertInfoWithSchemaAndDefaultLifecycleThrows() {
+  @Test
+  public void testUpsertInfoWithSchemaAndDefaultLifecycleDoesNotThrow() {
     RegisterSchemaRequest schema = new RegisterSchemaRequest();
     schema.setSchema("{\"type\":\"string\"}");
     AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(

@@ -163,8 +163,12 @@ public class AssociationCreateOrUpdateInfo {
   // 3. WEAK: Cannot have a schema or be frozen. Subject is required on create
   //    (no defaulting). On upsert, subject defaults if omitted.
   //
+  // Lifecycle defaults to WEAK only for CREATE. For UPSERT, lifecycle is left null
+  // if unspecified — the server uses the existing association's lifecycle.
+  //
   // Validation order: check user-provided subject, apply create+schema defaults,
-  // default associationType and lifecycle, then enforce lifecycle-specific rules.
+  // default associationType and lifecycle (CREATE only), then enforce
+  // lifecycle-specific rules.
   public void validate(boolean isCreate, boolean dryRun) {
     if (getSubject() != null) {
       checkSubject(getSubject());
@@ -191,7 +195,7 @@ public class AssociationCreateOrUpdateInfo {
     } else {
       setAssociationType(VALUE_ASSOCIATION_TYPE);
     }
-    if (getLifecycle() == null) {
+    if (isCreate && getLifecycle() == null) {
       setLifecycle(LifecyclePolicy.WEAK);
     }
     if (getLifecycle() == LifecyclePolicy.WEAK) {

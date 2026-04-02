@@ -49,8 +49,8 @@ public class AssociationCreateOp extends AssociationCreateOrUpdateOp {
 
   // CREATE-specific validation for the batch path (AssociationOpRequest).
   // If a schema is provided, the association is automatically frozen STRONG.
-  // After super.validate() defaults lifecycle to WEAK if unset, we enforce
-  // that WEAK associations must provide an explicit subject (no defaulting).
+  // Lifecycle defaults to WEAK if unset (only for CREATE, not UPSERT).
+  // WEAK associations must provide an explicit subject (no defaulting).
   // See AssociationCreateOrUpdateInfo.validate() for the full model description.
   @Override
   public void validate(boolean dryRun) {
@@ -65,6 +65,9 @@ public class AssociationCreateOp extends AssociationCreateOrUpdateOp {
       }
       setLifecycle(LifecyclePolicy.STRONG);
       setFrozen(true);
+    }
+    if (getLifecycle() == null) {
+      setLifecycle(LifecyclePolicy.WEAK);
     }
     super.validate(dryRun);
     if (getSubject() == null && getLifecycle() == LifecyclePolicy.WEAK) {

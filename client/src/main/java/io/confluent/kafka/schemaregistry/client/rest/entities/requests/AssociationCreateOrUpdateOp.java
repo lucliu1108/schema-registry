@@ -143,9 +143,10 @@ public abstract class AssociationCreateOrUpdateOp extends AssociationOp {
   }
 
   // Base validation for the batch path (shared by CREATE and UPSERT ops).
-  // Validates subject format, defaults associationType and lifecycle,
-  // and enforces WEAK restrictions (no schema, no frozen).
-  // CREATE-specific checks are in AssociationCreateOp.validate().
+  // Validates subject format, defaults associationType, and enforces WEAK
+  // restrictions (no schema, no frozen). Lifecycle is NOT defaulted here —
+  // CREATE defaults it to WEAK in AssociationCreateOp.validate(), while
+  // UPSERT leaves it null (the server uses the existing association's lifecycle).
   public void validate(boolean dryRun) {
     if (getSubject() != null) {
       checkSubject(getSubject());
@@ -159,9 +160,6 @@ public abstract class AssociationCreateOrUpdateOp extends AssociationOp {
       }
     } else {
       setAssociationType(VALUE_ASSOCIATION_TYPE);
-    }
-    if (getLifecycle() == null) {
-      setLifecycle(LifecyclePolicy.WEAK);
     }
     if (getLifecycle() == LifecyclePolicy.WEAK) {
       if (getSchema() != null) {
