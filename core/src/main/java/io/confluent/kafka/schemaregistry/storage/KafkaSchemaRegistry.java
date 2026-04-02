@@ -1225,27 +1225,8 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       String associationType = info.getAssociationType();
       Association association = assocsByType.get(associationType);
 
-      // Only allow auto-generated subject format for strong associations
-      String defaultSubject = defaultSubjectPrefix + associationType;
-      if (unqualifiedSubject != null && unqualifiedSubject.equals(defaultSubject)) {
-        if (association != null) {
-          // For upsert, check existing association's state
-          if (association.getLifecycle() != LifecyclePolicy.STRONG) {
-            throw new IllegalPropertyException(
-                "subject", "subject '" + defaultSubject
-                    + "' is only allowed for strong associations");
-          }
-        } else {
-          // For create, check the request's state
-          if (info.getLifecycle() != LifecyclePolicy.STRONG) {
-            throw new IllegalPropertyException(
-                "subject", "subject '" + defaultSubject
-                    + "' is only allowed for strong associations");
-          }
-        }
-      }
-
       // Frozen associations must use the default subject format
+      String defaultSubject = defaultSubjectPrefix + associationType;
       boolean isFrozen = association != null
           ? association.isFrozen() : Boolean.TRUE.equals(info.getFrozen());
       if (isFrozen && unqualifiedSubject != null
@@ -1266,13 +1247,8 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       }
 
       if (association == null) {
-        // If on create, frozen is set to true, ensure that a schema is being
-        // passed in, and that no other schemas exist in the subject
+        // Ensure no schemas already exist in the subject for frozen associations
         if (Boolean.TRUE.equals(info.getFrozen())) {
-          if (info.getSchema() == null) {
-            throw new IllegalPropertyException(
-                "schema", "schema must be provided when creating a frozen association");
-          }
           if (getLatestVersion(qualifiedSubject) != null) {
             throw new IllegalPropertyException(
                 "frozen", "cannot create a frozen association when schemas already exist "
@@ -1319,11 +1295,6 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       if (association.isFrozen()) {
         throw new AssociationFrozenException(
             association.getAssociationType(), association.getSubject());
-      }
-      if (association.getLifecycle() == LifecyclePolicy.WEAK
-          && Boolean.TRUE.equals(info.getFrozen())) {
-        throw new IllegalPropertyException(
-            "frozen", "association with lifecycle of WEAK cannot be frozen");
       }
     }
 

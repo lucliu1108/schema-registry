@@ -65,6 +65,9 @@ public class AssociationCreateOp extends AssociationCreateOrUpdateOp {
       }
       setLifecycle(LifecyclePolicy.STRONG);
       setFrozen(true);
+    } else if (Boolean.TRUE.equals(getFrozen())) {
+      throw new IllegalPropertyException(
+          "schema", "schema must be provided when creating a frozen association");
     }
     if (getLifecycle() == null) {
       setLifecycle(LifecyclePolicy.WEAK);
