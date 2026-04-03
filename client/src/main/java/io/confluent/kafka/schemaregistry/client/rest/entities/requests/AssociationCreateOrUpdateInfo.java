@@ -187,6 +187,8 @@ public class AssociationCreateOrUpdateInfo {
     } else if (isCreate && Boolean.TRUE.equals(getFrozen())) {
       throw new IllegalPropertyException(
           "schema", "schema must be provided when creating a frozen association");
+    } else if (isCreate) {
+      setFrozen(false);
     }
     if (getAssociationType() != null && !getAssociationType().isEmpty()) {
       if (!getAssociationType().equals(KEY_ASSOCIATION_TYPE)
