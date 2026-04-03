@@ -1277,7 +1277,8 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       }
       if (!association.getSubject().equals(unqualifiedSubject)) {
         throw new IllegalPropertyException(
-            "subject", "subject of association cannot be changed");
+            "subject", "subject of association cannot be changed from '"
+                + association.getSubject() + "' to '" + unqualifiedSubject + "'");
       }
       // Don't allow changing strong to weak if subject matches the default format
       if (association.getLifecycle() == LifecyclePolicy.STRONG
