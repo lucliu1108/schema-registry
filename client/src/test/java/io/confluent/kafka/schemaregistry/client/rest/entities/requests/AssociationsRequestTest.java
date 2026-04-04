@@ -17,6 +17,7 @@
 package io.confluent.kafka.schemaregistry.client.rest.entities.requests;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import io.confluent.kafka.schemaregistry.client.rest.entities.LifecyclePolicy;
@@ -273,23 +274,23 @@ public class AssociationsRequestTest {
   }
 
   @Test
-  public void testUpsertOpWithNullSubjectDefaultsSubject() {
+  public void testUpsertOpWithNullSubjectStaysNull() {
     AssociationUpsertOp op = new AssociationUpsertOp(
         null, null, LifecyclePolicy.STRONG, null, null, null);
     AssociationOpRequest request = new AssociationOpRequest(
         "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
     request.validate(false);
-    assertEquals(":.test-ns:test-resource-value", op.getSubject());
+    assertNull(op.getSubject());
   }
 
   @Test
-  public void testUpsertInfoWithNullSubjectDefaultsSubject() {
+  public void testUpsertInfoWithNullSubjectStaysNull() {
     AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
         null, null, LifecyclePolicy.STRONG, null, null, null);
     AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
         "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
     request.validate(false, false);
-    assertEquals(":.test-ns:test-resource-value", info.getSubject());
+    assertNull(info.getSubject());
   }
 
   @Test
@@ -342,8 +343,9 @@ public class AssociationsRequestTest {
     assertEquals(":.test-ns:test-resource-value", op.getSubject());
   }
 
-  @Test(expected = IllegalPropertyException.class)
-  public void testUpsertOpFrozenWithCustomSubjectThrows() {
+  @Test
+  public void testUpsertOpFrozenWithCustomSubjectDoesNotThrowOnClient() {
+    // Server-side will validate frozen subject format; client skips for UPSERT
     AssociationUpsertOp op = new AssociationUpsertOp(
         "custom-subject", null, LifecyclePolicy.STRONG, true, null, null);
     AssociationOpRequest request = new AssociationOpRequest(
@@ -446,5 +448,69 @@ public class AssociationsRequestTest {
         "test-resource", "test-ns", "test-id", null,
         java.util.Arrays.asList(info1, info2));
     request.validate(true, false);
+  }
+
+  // Requirement #6: UPDATE allows null subject, lifecycle, and frozen
+
+  @Test
+  public void testUpsertOpWithAllNullFieldsSucceeds() {
+    // Only associationType matters, defaults to "value"
+    AssociationUpsertOp op = new AssociationUpsertOp(
+        null, null, null, null, null, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
+    request.validate(false);
+    assertNull(op.getSubject());
+    assertNull(op.getLifecycle());
+    assertNull(op.getFrozen());
+    assertEquals("value", op.getAssociationType());
+  }
+
+  @Test
+  public void testUpsertInfoWithAllNullFieldsSucceeds() {
+    AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
+        null, null, null, null, null, null);
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
+    request.validate(false, false);
+    assertNull(info.getSubject());
+    assertNull(info.getLifecycle());
+    assertNull(info.getFrozen());
+    assertEquals("value", info.getAssociationType());
+  }
+
+  @Test
+  public void testUpsertOpWithOnlyLifecycleSucceeds() {
+    AssociationUpsertOp op = new AssociationUpsertOp(
+        null, null, LifecyclePolicy.WEAK, null, null, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
+    request.validate(false);
+    assertNull(op.getSubject());
+  }
+
+  @Test
+  public void testUpsertOpWithSchemaAndNullLifecycleSucceeds() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationUpsertOp op = new AssociationUpsertOp(
+        "test-subject", null, null, null, schema, null);
+    AssociationOpRequest request = new AssociationOpRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
+    request.validate(false);
+    // Lifecycle stays null — server determines from existing association
+    assertNull(op.getLifecycle());
+  }
+
+  @Test
+  public void testUpsertInfoWithSchemaAndNullLifecycleSucceeds() {
+    RegisterSchemaRequest schema = new RegisterSchemaRequest();
+    schema.setSchema("{\"type\":\"string\"}");
+    AssociationCreateOrUpdateInfo info = new AssociationCreateOrUpdateInfo(
+        "test-subject", null, null, null, schema, null);
+    AssociationCreateOrUpdateRequest request = new AssociationCreateOrUpdateRequest(
+        "test-resource", "test-ns", "test-id", null, Collections.singletonList(info));
+    request.validate(false, false);
+    assertNull(info.getLifecycle());
   }
 }

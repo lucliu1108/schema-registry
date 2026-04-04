@@ -158,22 +158,25 @@ public class AssociationCreateOrUpdateInfo {
   //    CREATE+schema implies frozen STRONG automatically.
   //
   // 2. Non-frozen STRONG: Schema is optional. Subject defaults to :.ns:name-type
-  //    if omitted. Can be created without a schema if the subject already has one.
+  //    if omitted on create. Can be created without a schema if the subject
+  //    already has one.
   //
   // 3. WEAK: Cannot have a schema or be frozen. Subject is required on create
-  //    (no defaulting). On upsert, subject defaults if omitted.
+  //    (no defaulting).
   //
-  // Lifecycle defaults to WEAK only for CREATE. For UPSERT, lifecycle is left null
-  // if unspecified — the server uses the existing association's lifecycle.
+  // For UPDATE, only associationType is required. Lifecycle, frozen, and subject
+  // are left null if unspecified — the server fills them from the existing
+  // association. If no existing association exists, CREATE defaults are applied
+  // on the server.
   //
-  // Validation order: check user-provided subject, apply create+schema defaults,
-  // default associationType and lifecycle (CREATE only), then enforce
-  // lifecycle-specific rules.
-  public void validate(boolean isCreate, boolean dryRun) {
-    if (getSubject() != null) {
-      checkSubject(getSubject());
-    }
-    if (isCreate && getSchema() != null) {
+  // Validation order: check user-provided subject, apply create defaults
+  // (CREATE only), default associationType, then enforce lifecycle-specific rules.
+  /**
+   * Applies CREATE defaults: schema implies frozen STRONG, frozen requires schema,
+   * non-schema defaults to non-frozen, lifecycle defaults to WEAK.
+   */
+  public void applyCreateDefaults() {
+    if (getSchema() != null) {
       if (getLifecycle() == LifecyclePolicy.WEAK) {
         throw new IllegalPropertyException(
             "lifecycle", "cannot be WEAK when schema is provided for create");
@@ -184,11 +187,23 @@ public class AssociationCreateOrUpdateInfo {
       }
       setLifecycle(LifecyclePolicy.STRONG);
       setFrozen(true);
-    } else if (isCreate && Boolean.TRUE.equals(getFrozen())) {
+    } else if (Boolean.TRUE.equals(getFrozen())) {
       throw new IllegalPropertyException(
           "schema", "schema must be provided when creating a frozen association");
-    } else if (isCreate) {
+    } else {
       setFrozen(false);
+    }
+    if (getLifecycle() == null) {
+      setLifecycle(LifecyclePolicy.WEAK);
+    }
+  }
+
+  public void validate(boolean isCreate, boolean dryRun) {
+    if (getSubject() != null) {
+      checkSubject(getSubject());
+    }
+    if (isCreate) {
+      applyCreateDefaults();
     }
     if (getAssociationType() != null && !getAssociationType().isEmpty()) {
       if (!getAssociationType().equals(KEY_ASSOCIATION_TYPE)
@@ -199,9 +214,6 @@ public class AssociationCreateOrUpdateInfo {
       }
     } else {
       setAssociationType(VALUE_ASSOCIATION_TYPE);
-    }
-    if (isCreate && getLifecycle() == null) {
-      setLifecycle(LifecyclePolicy.WEAK);
     }
     if (getLifecycle() == LifecyclePolicy.WEAK) {
       if (getSchema() != null) {

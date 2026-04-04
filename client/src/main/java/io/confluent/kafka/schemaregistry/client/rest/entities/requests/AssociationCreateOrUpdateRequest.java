@@ -168,20 +168,22 @@ public class AssociationCreateOrUpdateRequest {
       String defaultSubject = QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
           + QualifiedSubject.CONTEXT_DELIMITER + resourceName
           + "-" + info.getAssociationType();
-      if (info.getSubject() == null) {
-        info.setSubject(defaultSubject);
-      }
-      // Frozen associations must use the default subject format
-      if (Boolean.TRUE.equals(info.getFrozen())
-          && !info.getSubject().equals(defaultSubject)) {
-        throw new IllegalPropertyException(
-            "subject", "frozen associations must use subject '" + defaultSubject + "'");
-      }
-      // WEAK associations cannot use the default subject format
-      if (info.getLifecycle() == LifecyclePolicy.WEAK
-          && info.getSubject().equals(defaultSubject)) {
-        throw new IllegalPropertyException(
-            "subject", "WEAK associations cannot use subject '" + defaultSubject + "'");
+      if (isCreate) {
+        if (info.getSubject() == null) {
+          info.setSubject(defaultSubject);
+        }
+        // Frozen associations must use the default subject format
+        if (Boolean.TRUE.equals(info.getFrozen())
+            && !info.getSubject().equals(defaultSubject)) {
+          throw new IllegalPropertyException(
+              "subject", "frozen associations must use subject '" + defaultSubject + "'");
+        }
+        // WEAK associations cannot use the default subject format
+        if (info.getLifecycle() == LifecyclePolicy.WEAK
+            && info.getSubject().equals(defaultSubject)) {
+          throw new IllegalPropertyException(
+              "subject", "WEAK associations cannot use subject '" + defaultSubject + "'");
+        }
       }
       // Check frozen consistency within the request
       if (info.getFrozen() != null) {

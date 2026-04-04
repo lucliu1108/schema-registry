@@ -517,7 +517,7 @@ public class MockSchemaRegistryClientTest {
       createRequest = new AssociationCreateOrUpdateRequest(
               frozenResourceName, defaultResourceNamespace, frozenResourceId, TOPIC,
               Collections.singletonList(new AssociationCreateOrUpdateInfo(
-                      null, VALUE, LifecyclePolicy.STRONG, true,
+                      frozenDefaultSubject, VALUE, LifecyclePolicy.STRONG, true,
                       new RegisterSchemaRequest(new Schema(null, null, null, null, null, SIMPLE_AVRO_SCHEMA)),
                       false)));
       try {
@@ -977,9 +977,9 @@ public class MockSchemaRegistryClientTest {
             client.createOrUpdateAssociation(new AssociationCreateOrUpdateRequest(
                     resourceName, resourceNamespace, resourceID, null,
                     Arrays.asList(
-                            new AssociationCreateOrUpdateInfo(null, "key", LifecyclePolicy.STRONG, true,
+                            new AssociationCreateOrUpdateInfo(keySubject, "key", LifecyclePolicy.STRONG, true,
                                 new RegisterSchemaRequest(schema), false),
-                            new AssociationCreateOrUpdateInfo(null, "value", LifecyclePolicy.STRONG, true,
+                            new AssociationCreateOrUpdateInfo(valueSubject, "value", LifecyclePolicy.STRONG, true,
                                 new RegisterSchemaRequest(schema), false)
                     )));
         } catch (Exception e) {

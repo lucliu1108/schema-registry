@@ -167,23 +167,25 @@ public class AssociationOpRequest {
       op.validate(dryRun);
       if (op instanceof AssociationCreateOrUpdateOp) {
         AssociationCreateOrUpdateOp createOrUpdateOp = (AssociationCreateOrUpdateOp) op;
-        String defaultSubject = QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
-            + QualifiedSubject.CONTEXT_DELIMITER + resourceName
-            + "-" + createOrUpdateOp.getAssociationType();
-        if (createOrUpdateOp.getSubject() == null) {
-          createOrUpdateOp.setSubject(defaultSubject);
-        }
-        // Frozen associations must use the default subject format
-        if (Boolean.TRUE.equals(createOrUpdateOp.getFrozen())
-            && !createOrUpdateOp.getSubject().equals(defaultSubject)) {
-          throw new IllegalPropertyException(
-              "subject", "frozen associations must use subject '" + defaultSubject + "'");
-        }
-        // WEAK associations cannot use the default subject format
-        if (createOrUpdateOp.getLifecycle() == LifecyclePolicy.WEAK
-            && createOrUpdateOp.getSubject().equals(defaultSubject)) {
-          throw new IllegalPropertyException(
-              "subject", "WEAK associations cannot use subject '" + defaultSubject + "'");
+        if (op instanceof AssociationCreateOp) {
+          String defaultSubject = QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
+              + QualifiedSubject.CONTEXT_DELIMITER + resourceName
+              + "-" + createOrUpdateOp.getAssociationType();
+          if (createOrUpdateOp.getSubject() == null) {
+            createOrUpdateOp.setSubject(defaultSubject);
+          }
+          // Frozen associations must use the default subject format
+          if (Boolean.TRUE.equals(createOrUpdateOp.getFrozen())
+              && !createOrUpdateOp.getSubject().equals(defaultSubject)) {
+            throw new IllegalPropertyException(
+                "subject", "frozen associations must use subject '" + defaultSubject + "'");
+          }
+          // WEAK associations cannot use the default subject format
+          if (createOrUpdateOp.getLifecycle() == LifecyclePolicy.WEAK
+              && createOrUpdateOp.getSubject().equals(defaultSubject)) {
+            throw new IllegalPropertyException(
+                "subject", "WEAK associations cannot use subject '" + defaultSubject + "'");
+          }
         }
         // Check frozen consistency within the request
         if (createOrUpdateOp.getFrozen() != null) {

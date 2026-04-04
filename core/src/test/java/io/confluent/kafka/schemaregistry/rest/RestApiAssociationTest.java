@@ -2637,5 +2637,189 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     assertTrue(associations.get(0).isFrozen());
     assertTrue(associations.get(1).isFrozen());
   }
+
+  // Requirement #6: UPDATE allows null subject, lifecycle, and frozen
+
+  @Test
+  public void testUpsertWithNullSubjectUsesExistingSubject() throws Exception {
+    String subject = "existing-subject";
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "upsert-null-sub-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(1);
+
+    // Register schema and create association
+    restApp.restClient.registerSchema(allSchemas.get(0), subject);
+    AssociationCreateOrUpdateRequest createRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            subject, "value", LifecyclePolicy.STRONG, false, null, null)));
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
+
+    // Upsert with null subject — should use existing subject
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "value", null, null, null, null)));
+    restApp.restClient.createOrUpdateAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+
+    // Verify association still uses the original subject
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        Collections.singletonList("value"), null, 0, -1);
+    assertEquals(1, associations.size());
+    assertEquals(subject, associations.get(0).getSubject());
+  }
+
+  @Test
+  public void testUpsertWithNullLifecycleKeepsExisting() throws Exception {
+    String subject = "lifecycle-test-subject";
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "upsert-null-lc-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(2);
+
+    // Register schema and create STRONG association
+    restApp.restClient.registerSchema(allSchemas.get(0), subject);
+    AssociationCreateOrUpdateRequest createRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            subject, "value", LifecyclePolicy.STRONG, false, null, null)));
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
+
+    // Upsert with schema and null lifecycle — should succeed (existing is STRONG)
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(1));
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "value", null, null, schemaRequest, null)));
+    restApp.restClient.createOrUpdateAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+
+    // Verify lifecycle is still STRONG
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        Collections.singletonList("value"), null, 0, -1);
+    assertEquals(1, associations.size());
+    assertEquals(LifecyclePolicy.STRONG, associations.get(0).getLifecycle());
+  }
+
+  @Test
+  public void testUpsertWithSchemaOnExistingWeakFails() throws Exception {
+    String subject = "weak-schema-test";
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "upsert-weak-schema-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(2);
+
+    // Register schema and create WEAK association
+    restApp.restClient.registerSchema(allSchemas.get(0), subject);
+    AssociationCreateOrUpdateRequest createRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            subject, "value", LifecyclePolicy.WEAK, false, null, null)));
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
+
+    // Upsert with schema and null lifecycle on existing WEAK — should fail
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(1));
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "value", null, null, schemaRequest, null)));
+
+    assertThrows(Exception.class, () ->
+        restApp.restClient.createOrUpdateAssociation(
+            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest));
+  }
+
+  @Test
+  public void testUpsertCreatingNewWithSchemaAppliesCreateDefaults() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "upsert-new-schema-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(1);
+
+    RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
+    schemaRequest.setSchema(allSchemas.get(0));
+
+    // Upsert with schema, no existing association — should apply CREATE defaults
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "value", null, null, schemaRequest, null)));
+    restApp.restClient.createOrUpdateAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+
+    // Verify it was created as frozen STRONG with default subject
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        Collections.singletonList("value"), null, 0, -1);
+    assertEquals(1, associations.size());
+    assertEquals(":.default:topic1-value", associations.get(0).getSubject());
+    assertEquals(LifecyclePolicy.STRONG, associations.get(0).getLifecycle());
+    assertTrue(associations.get(0).isFrozen());
+  }
+
+  @Test
+  public void testUpsertCreatingNewWithoutSchemaAndNoSubjectFails() throws Exception {
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "upsert-new-nosub-123";
+
+    // Upsert with no schema, no subject, no lifecycle, no existing association
+    // Should apply CREATE defaults → lifecycle=WEAK → subject required → fail
+    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            null, "value", null, null, null, null)));
+
+    assertThrows(Exception.class, () ->
+        restApp.restClient.createOrUpdateAssociation(
+            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest));
+  }
+
+  @Test
+  public void testBatchUpsertWithNullSubjectUsesExisting() throws Exception {
+    String subject = "batch-existing-subject";
+    String resourceName = "topic1";
+    String resourceNamespace = "default";
+    String resourceId = "batch-upsert-null-sub-123";
+    List<String> allSchemas = TestUtils.getRandomCanonicalAvroString(1);
+
+    // Register schema and create association
+    restApp.restClient.registerSchema(allSchemas.get(0), subject);
+    AssociationCreateOrUpdateRequest createRequest = new AssociationCreateOrUpdateRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        ImmutableList.of(new AssociationCreateOrUpdateInfo(
+            subject, "value", LifecyclePolicy.STRONG, false, null, null)));
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
+
+    // Batch upsert with null subject
+    AssociationUpsertOp upsertOp = new AssociationUpsertOp(
+        null, "value", null, null, null, null);
+    AssociationOpRequest opRequest = new AssociationOpRequest(
+        resourceName, resourceNamespace, resourceId, "topic",
+        Collections.singletonList(upsertOp));
+    AssociationBatchRequest batchRequest = new AssociationBatchRequest(
+        Collections.singletonList(opRequest));
+
+    AssociationBatchResponse response = restApp.restClient.mutateAssociations(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, batchRequest);
+    assertNull(response.getResults().get(0).getError());
+
+    // Verify subject unchanged
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        Collections.singletonList("value"), null, 0, -1);
+    assertEquals(1, associations.size());
+    assertEquals(subject, associations.get(0).getSubject());
+  }
 }
 
