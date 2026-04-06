@@ -133,7 +133,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
     }
 
     /**
-     * Verifies `groupBy()` and `count()` works correctly use headers-aware stores.
+     * Verifies `groupBy()` and `count()` work correctly using headers-aware stores.
      */
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
@@ -730,8 +730,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
         GenericAvroSerde valueSerde = createValueSerde();
 
         // The source table is materialized with a headers-aware store.
-        // filterNot is not materialized, so it uses a ValueGetter to read from the source store.
-        // filter is materialized, so it reads through filterNot's ValueGetter chain.
+        // filterNot is not materialized, filter is materialized.
         StreamsBuilder builder = new StreamsBuilder();
         builder.table(inputTopic, Consumed.with(keySerde, valueSerde),
                 Materialized.<GenericRecord, GenericRecord>as(
@@ -776,7 +775,33 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("this is another long line", results.get(1).value().get("line").toString());
             assertSchemaIdHeaders(results.get(1).headers(), "filter output2");
 
-            // IQv1 verification
+            // IQv1 verification — source store (all 4 records)
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> sourceStore =
+                streams.store(StoreQueryParameters.fromNameAndType(
+                    sourceStoreName, new TimestampedKeyValueStoreWithHeadersType<>()));
+            assertNotNull(sourceStore, "Source store should be queryable");
+
+            ValueTimestampHeaders<GenericRecord> srcLong = sourceStore.get(createKey("long"));
+            assertNotNull(srcLong, "source store: 'long' should exist");
+            assertEquals("this is a long long line", srcLong.value().get("line").toString());
+            assertSchemaIdHeaders(srcLong.headers(), "source store: long");
+
+            ValueTimestampHeaders<GenericRecord> srcLong2 = sourceStore.get(createKey("long2"));
+            assertNotNull(srcLong2, "source store: 'long2' should exist");
+            assertEquals("this is another long line", srcLong2.value().get("line").toString());
+            assertSchemaIdHeaders(srcLong2.headers(), "source store: long2");
+
+            ValueTimestampHeaders<GenericRecord> srcLong3 = sourceStore.get(createKey("long3"));
+            assertNotNull(srcLong3, "source store: 'long3' should exist");
+            assertEquals("this is another long line with kafka", srcLong3.value().get("line").toString());
+            assertSchemaIdHeaders(srcLong3.headers(), "source store: long3");
+
+            ValueTimestampHeaders<GenericRecord> srcShort = sourceStore.get(createKey("short"));
+            assertNotNull(srcShort, "source store: 'short' should exist");
+            assertEquals("line", srcShort.value().get("line").toString());
+            assertSchemaIdHeaders(srcShort.headers(), "source store: short");
+
+            // IQv1 verification — filter store (only long lines without 'kafka')
             ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> filterStore =
                 streams.store(StoreQueryParameters.fromNameAndType(
                     filterStoreName, new TimestampedKeyValueStoreWithHeadersType<>()));
@@ -792,6 +817,9 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             ValueTimestampHeaders<GenericRecord> shortResult = filterStore.get(createKey("short"));
             assertTrue(shortResult == null || shortResult.value() == null,
                 "filter store: 'short' should be filtered out");
+            ValueTimestampHeaders<GenericRecord> long3Result = filterStore.get(createKey("long3"));
+            assertTrue(long3Result == null || long3Result.value() == null,
+                "filter store: 'long3' should be filtered out (contains 'kafka')");
 
             // Tombstone delete "long" and verify it is removed from the filter store
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
@@ -856,16 +884,12 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
         GenericAvroSerde valueSerde = createValueSerde();
 
         StreamsBuilder builder = new StreamsBuilder();
-//        KTable<GenericRecord, GenericRecord> namesTable =
-//            builder.table(namesTopic, Consumed.with(keySerde, valueSerde));
         KTable<GenericRecord, GenericRecord> namesTable =
             builder.table(namesTopic, Consumed.with(keySerde, valueSerde),
                 Materialized.<GenericRecord, GenericRecord>as(
                         Stores.persistentTimestampedKeyValueStoreWithHeaders("names-store"))
                     .withKeySerde(keySerde)
                     .withValueSerde(valueSerde));
-//        KTable<GenericRecord, GenericRecord> agesTable =
-//            builder.table(agesTopic, Consumed.with(keySerde, valueSerde));
         KTable<GenericRecord, GenericRecord> agesTable =
             builder.table(agesTopic, Consumed.with(keySerde, valueSerde),
                 Materialized.<GenericRecord, GenericRecord>as(
@@ -962,7 +986,47 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("Bob Jones, age 25", innerJoinValues.get("bob"));
             assertNull(innerJoinValues.get("carol"));
 
-            // IQv1 verification
+            // IQv1 verification — names source store
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> namesStore =
+                streams.store(StoreQueryParameters.fromNameAndType(
+                    "names-store", new TimestampedKeyValueStoreWithHeadersType<>()));
+            assertNotNull(namesStore, "Names store should be queryable");
+
+            ValueTimestampHeaders<GenericRecord> aliceName = namesStore.get(createKey("alice"));
+            assertNotNull(aliceName, "names store: alice should exist");
+            assertEquals("Alice Smith", aliceName.value().get("line").toString());
+            assertSchemaIdHeaders(aliceName.headers(), "names store: alice");
+
+            ValueTimestampHeaders<GenericRecord> bobName = namesStore.get(createKey("bob"));
+            assertNotNull(bobName, "names store: bob should exist");
+            assertEquals("Bob Jones", bobName.value().get("line").toString());
+            assertSchemaIdHeaders(bobName.headers(), "names store: bob");
+
+            ValueTimestampHeaders<GenericRecord> carolName = namesStore.get(createKey("carol"));
+            assertNotNull(carolName, "names store: carol should exist");
+            assertEquals("Carol White", carolName.value().get("line").toString());
+            assertSchemaIdHeaders(carolName.headers(), "names store: carol");
+
+            // IQv1 verification — ages source store
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> agesStore =
+                streams.store(StoreQueryParameters.fromNameAndType(
+                    "ages-store", new TimestampedKeyValueStoreWithHeadersType<>()));
+            assertNotNull(agesStore, "Ages store should be queryable");
+
+            ValueTimestampHeaders<GenericRecord> aliceAge = agesStore.get(createKey("alice"));
+            assertNotNull(aliceAge, "ages store: alice should exist");
+            assertEquals("30", aliceAge.value().get("line").toString());
+            assertSchemaIdHeaders(aliceAge.headers(), "ages store: alice");
+
+            ValueTimestampHeaders<GenericRecord> bobAge = agesStore.get(createKey("bob"));
+            assertNotNull(bobAge, "ages store: bob should exist");
+            assertEquals("25", bobAge.value().get("line").toString());
+            assertSchemaIdHeaders(bobAge.headers(), "ages store: bob");
+
+            ValueTimestampHeaders<GenericRecord> carolAge = agesStore.get(createKey("carol"));
+            assertNull(carolAge, "ages store: carol should not exist (no age provided)");
+
+            // IQv1 verification — inner join store
             ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
                 streams.store(StoreQueryParameters.fromNameAndType(
                     innerJoinStoreName, new TimestampedKeyValueStoreWithHeadersType<>()));
@@ -1234,7 +1298,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("carol table 2", mergedValues.get("carol"));
             assertEquals("dave table 2", mergedValues.get("dave"));
 
-            // IQv1 verification for both stores
+            // IQv1 verification for store 1
             ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store1 =
                 streams.store(StoreQueryParameters.fromNameAndType(
                     storeName1, new TimestampedKeyValueStoreWithHeadersType<>()));
@@ -1251,7 +1315,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("bob table 1", bobResult1.value().get("line").toString());
             assertSchemaIdHeaders(aliceResult.headers(), "IQv1 store1 get bob");
 
-            // verify store 2
+            // IQv1 verification for store 2
             ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store2 =
                 streams.store(StoreQueryParameters.fromNameAndType(
                     storeName2, new TimestampedKeyValueStoreWithHeadersType<>()));
@@ -1329,7 +1393,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
         GenericAvroSerde mappedSerde = createValueSerde();
 
         // Source table is materialized with a headers-aware store.
-        // transformValues is not materialized → uses ValueGetter path.
+        // transformValues is not materialized.
         StreamsBuilder builder = new StreamsBuilder();
         builder.table(inputTopic, Consumed.with(keySerde, valueSerde),
                 Materialized.<GenericRecord, GenericRecord>as(
