@@ -263,7 +263,9 @@ public interface SchemaRegistryClient extends Closeable, SchemaVersionFetcher {
     return getConfig(subject).getCompatibilityLevel();
   }
 
-  default String getCompatibility(String subject, boolean defaultToGlobal) throws IOException, RestClientException {
+  default String getCompatibility(
+      String subject, boolean defaultToGlobal)
+      throws IOException, RestClientException {
     return getConfig(subject, defaultToGlobal).getCompatibilityLevel();
   }
 
@@ -280,7 +282,9 @@ public interface SchemaRegistryClient extends Closeable, SchemaVersionFetcher {
     throw new UnsupportedOperationException();
   }
 
-  default Config getConfig(String subject, boolean defaultToGlobal) throws IOException, RestClientException {
+  default Config getConfig(
+      String subject, boolean defaultToGlobal)
+      throws IOException, RestClientException {
     throw new UnsupportedOperationException();
   }
 
