@@ -1032,7 +1032,9 @@ public class CachedSchemaRegistryClient implements SchemaRegistryClient {
   }
 
   @Override
-  public Config getConfig(String subject, boolean defaultToGlobal) throws IOException, RestClientException {
+  public Config getConfig(
+      String subject, boolean defaultToGlobal) 
+      throws IOException, RestClientException {
     return restService.getConfig(subject, defaultToGlobal);
   }
 
