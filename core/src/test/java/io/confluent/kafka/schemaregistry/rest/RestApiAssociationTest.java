@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.google.common.collect.ImmutableList;
@@ -2474,7 +2475,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
   // Requirement: Frozen/non-frozen consistency at resource level
 
   @Test
-  public void testCreateFrozenThenUpsertNonFrozenFails() throws Exception {
+  public void testCreateFrozenThenUpsertNonFrozenSucceeds() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
     String resourceId = "frozen-consistency-123";
@@ -2492,20 +2493,25 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     restApp.restClient.createAssociation(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
 
-    // Now try to upsert a non-frozen association for the same resource — should fail
+    // Now upsert a non-frozen association for the same resource — should succeed
     restApp.restClient.registerSchema(allSchemas.get(1), "value-subject");
     AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
         resourceName, resourceNamespace, resourceId, "topic",
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
             "value-subject", "value", LifecyclePolicy.STRONG, false, null, null)));
 
-    assertThrows(Exception.class, () ->
-        restApp.restClient.createOrUpdateAssociation(
-            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest));
+    restApp.restClient.createOrUpdateAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+
+    // Verify both exist with different frozen states
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        ImmutableList.of("key", "value"), null, 0, -1);
+    assertEquals(2, associations.size());
   }
 
   @Test
-  public void testCreateNonFrozenThenUpsertFrozenFails() throws Exception {
+  public void testCreateNonFrozenThenUpsertFrozenSucceeds() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
     String resourceId = "nonfrozen-then-frozen-123";
@@ -2521,7 +2527,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     restApp.restClient.createAssociation(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
 
-    // Now try to upsert a frozen association for the same resource — should fail
+    // Now upsert a frozen association for the same resource — should succeed
     RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
     schemaRequest.setSchema(allSchemas.get(1));
     AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
@@ -2529,9 +2535,14 @@ public class RestApiAssociationTest extends ClusterTestHarness {
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
             null, "value", LifecyclePolicy.STRONG, true, schemaRequest, null)));
 
-    assertThrows(Exception.class, () ->
-        restApp.restClient.createOrUpdateAssociation(
-            RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest));
+    restApp.restClient.createOrUpdateAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+
+    // Verify both exist with different frozen states
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        ImmutableList.of("key", "value"), null, 0, -1);
+    assertEquals(2, associations.size());
   }
 
   @Test
@@ -2574,7 +2585,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
   }
 
   @Test
-  public void testBatchCreateMixedFrozenAndNonFrozenFails() throws Exception {
+  public void testBatchCreateMixedFrozenAndNonFrozenSucceeds() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
     String resourceId = "batch-mixed-frozen-123";
@@ -2583,7 +2594,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
     schemaRequest.setSchema(allSchemas.get(0));
 
-    // Batch with mixed frozen and non-frozen — should fail
+    // Batch with mixed frozen and non-frozen — should succeed
     AssociationCreateOp frozenOp = new AssociationCreateOp(
         null, "key", null, null, schemaRequest, null);
     AssociationCreateOp nonFrozenOp = new AssociationCreateOp(
@@ -2600,7 +2611,13 @@ public class RestApiAssociationTest extends ClusterTestHarness {
 
     AssociationBatchResponse response = restApp.restClient.mutateAssociations(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, batchRequest);
-    assertNotNull(response.getResults().get(0).getError());
+    assertNull(response.getResults().get(0).getError());
+
+    // Verify both exist
+    List<Association> associations = restApp.restClient.getAssociationsByResourceId(
+        RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
+        ImmutableList.of("key", "value"), null, 0, -1);
+    assertEquals(2, associations.size());
   }
 
   @Test
@@ -2739,7 +2756,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
   }
 
   @Test
-  public void testUpsertCreatingNewWithSchemaAppliesCreateDefaults() throws Exception {
+  public void testUpsertCreatingNewWithSchemaAppliesUpsertDefaults() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
     String resourceId = "upsert-new-schema-123";
@@ -2748,7 +2765,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
     schemaRequest.setSchema(allSchemas.get(0));
 
-    // Upsert with schema, no existing association — should apply CREATE defaults
+    // Upsert with schema, no existing association — should apply UPSERT defaults
     AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
         resourceName, resourceNamespace, resourceId, "topic",
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
@@ -2756,14 +2773,14 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     restApp.restClient.createOrUpdateAssociation(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
 
-    // Verify it was created as frozen STRONG with default subject
+    // Verify it was created as non-frozen STRONG with default subject
     List<Association> associations = restApp.restClient.getAssociationsByResourceId(
         RestService.DEFAULT_REQUEST_PROPERTIES, resourceId, "topic",
         Collections.singletonList("value"), null, 0, -1);
     assertEquals(1, associations.size());
     assertEquals(":.default:topic1-value", associations.get(0).getSubject());
     assertEquals(LifecyclePolicy.STRONG, associations.get(0).getLifecycle());
-    assertTrue(associations.get(0).isFrozen());
+    assertFalse(associations.get(0).isFrozen());
   }
 
   @Test
