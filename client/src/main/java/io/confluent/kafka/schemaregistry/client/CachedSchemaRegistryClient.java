@@ -1144,14 +1144,12 @@ public class CachedSchemaRegistryClient implements SchemaRegistryClient {
   @Override
   public AssociationResponse createAssociation(AssociationCreateOrUpdateRequest request)
       throws IOException, RestClientException {
-    request.validate(true, false);
     return restService.createAssociation(DEFAULT_REQUEST_PROPERTIES, null, false, request);
   }
 
   @Override
   public AssociationResponse createOrUpdateAssociation(AssociationCreateOrUpdateRequest request)
       throws IOException, RestClientException {
-    request.validate(false, false);
     return restService.createOrUpdateAssociation(DEFAULT_REQUEST_PROPERTIES, null, false, request);
   }
 
@@ -1204,7 +1202,6 @@ public class CachedSchemaRegistryClient implements SchemaRegistryClient {
   public AssociationBatchResponse mutateAssociations(
       String context, Boolean dryRun, AssociationBatchRequest request)
       throws IOException, RestClientException {
-    request.validate(dryRun != null && dryRun);
     return restService.mutateAssociations(DEFAULT_REQUEST_PROPERTIES, context, dryRun, request);
   }
 

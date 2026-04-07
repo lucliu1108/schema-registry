@@ -1218,17 +1218,17 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       String associationType = info.getAssociationType();
       Association association = assocsByType.get(associationType);
 
-      // For upsert with null subject, use the existing association's subject.
-      // If no existing association, apply UPSERT defaults (schema→STRONG not frozen,
-      // default lifecycle to WEAK, default subject for STRONG).
+      // For null subject: use existing association's subject, or default for STRONG,
+      // or reject for WEAK. For upsert with no existing association, apply upsert defaults.
       String unqualifiedSubject = info.getSubject();
       String defaultSubject = defaultSubjectPrefix + associationType;
       if (unqualifiedSubject == null) {
         if (association != null) {
           unqualifiedSubject = association.getSubject();
-        } else if (!isCreate) {
-          // UPSERT creating new association — apply UPSERT defaults
-          info.applyDefaults(false);
+        } else {
+          if (!isCreate) {
+            info.applyDefaults(false);
+          }
           if (info.getLifecycle() == LifecyclePolicy.STRONG) {
             unqualifiedSubject = defaultSubject;
           } else {
@@ -1236,9 +1236,7 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
                 "subject", "must be provided for WEAK associations");
           }
         }
-        if (unqualifiedSubject != null) {
-          info.setSubject(unqualifiedSubject);
-        }
+        info.setSubject(unqualifiedSubject);
       }
 
       String qualifiedSubject = unqualifiedSubject != null

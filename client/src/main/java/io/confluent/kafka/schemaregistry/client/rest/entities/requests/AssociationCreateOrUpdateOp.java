@@ -153,14 +153,14 @@ public abstract class AssociationCreateOrUpdateOp extends AssociationOp {
         throw new IllegalPropertyException(
             "lifecycle", "cannot be WEAK when schema is provided");
       }
-      if (isCreate && Boolean.FALSE.equals(getFrozen())) {
+      if (getFrozen() != null && getFrozen() != isCreate) {
         throw new IllegalPropertyException(
-            "frozen", "cannot be false when schema is provided for create");
+            "frozen", isCreate
+                ? "cannot be false when schema is provided for create"
+                : "cannot be true when creating via upsert; use create instead");
       }
       setLifecycle(LifecyclePolicy.STRONG);
-      if (getFrozen() == null) {
-        setFrozen(isCreate);
-      }
+      setFrozen(isCreate);
     } else {
       if (isCreate && Boolean.TRUE.equals(getFrozen())) {
         throw new IllegalPropertyException(

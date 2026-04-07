@@ -440,6 +440,12 @@ public class AssociationsResource {
       throw Errors.invalidAssociationException("requests", "cannot be null or empty");
     }
 
+    try {
+      request.validate(dryRun);
+    } catch (IllegalPropertyException e) {
+      throw Errors.invalidAssociationException(e.getPropertyName(), e.getDetail());
+    }
+
     Map<String, String> headerProperties = requestHeaderBuilder.buildRequestHeaders(
         headers, schemaRegistry.config().whitelistHeaders());
 
