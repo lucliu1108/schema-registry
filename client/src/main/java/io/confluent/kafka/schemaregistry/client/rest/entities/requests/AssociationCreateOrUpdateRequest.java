@@ -143,8 +143,8 @@ public class AssociationCreateOrUpdateRequest {
 
   // Validates resource fields, then for each association info: validates the info
   // (applying create+schema defaults if isCreate), defaults the subject to
-  // :.ns:name-type for STRONG associations, enforces that frozen associations use
-  // the default subject, and checks frozen consistency across all associations.
+  // :.ns:name-type for STRONG associations, and enforces that frozen associations
+  // use the default subject.
   public void validate(boolean isCreate, boolean dryRun) {
     checkName(getResourceName(), "resourceName");
     checkName(getResourceNamespace(), "resourceNamespace");
@@ -162,7 +162,6 @@ public class AssociationCreateOrUpdateRequest {
     if (getAssociations() == null || getAssociations().isEmpty()) {
       throw new IllegalPropertyException("associations", "cannot be null or empty");
     }
-    Boolean frozenState = null;
     for (AssociationCreateOrUpdateInfo info : getAssociations()) {
       info.validate(isCreate, dryRun);
       String defaultSubject = QualifiedSubject.CONTEXT_PREFIX + resourceNamespace
@@ -183,16 +182,6 @@ public class AssociationCreateOrUpdateRequest {
             && info.getSubject().equals(defaultSubject)) {
           throw new IllegalPropertyException(
               "subject", "WEAK associations cannot use subject '" + defaultSubject + "'");
-        }
-      }
-      // Check frozen consistency within the request
-      if (info.getFrozen() != null) {
-        if (frozenState == null) {
-          frozenState = info.getFrozen();
-        } else if (!frozenState.equals(info.getFrozen())) {
-          throw new IllegalPropertyException(
-              "frozen", "all associations for a resource must be consistently "
-                  + "frozen or non-frozen");
         }
       }
     }

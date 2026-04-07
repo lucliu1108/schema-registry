@@ -1045,11 +1045,12 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
               collectSchemas(upsertResp, schemas);
               break;
             case DELETE:
+              AssociationDeleteOp deleteOp = (AssociationDeleteOp) op;
               deleteAssociations(
                   req.getResourceId(),
                   req.getResourceType(),
-                  Collections.singletonList(((AssociationDeleteOp) op).getAssociationType()),
-                  false, dryRun
+                  Collections.singletonList(deleteOp.getAssociationType()),
+                  Boolean.TRUE.equals(deleteOp.getCascadeLifecycle()), dryRun
               );
               break;
             default:
@@ -1209,13 +1210,6 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         request.getResourceId(), request.getResourceType(),
         new ArrayList<>(infosByType.keySet()), null);
 
-    // Check frozen consistency at the resource level
-    List<Association> allAssociations = getAssociationsByResourceId(
-        request.getResourceId(), request.getResourceType(),
-        Collections.emptyList(), null);
-    Boolean existingFrozenState = allAssociations.isEmpty()
-        ? null : allAssociations.get(0).isFrozen();
-
     // Check whether the resource already has an association
     Map<String, Association> assocsByType = associations.stream()
         .collect(Collectors.toMap(Association::getAssociationType, a -> a));
@@ -1225,7 +1219,7 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       Association association = assocsByType.get(associationType);
 
       // For upsert with null subject, use the existing association's subject.
-      // If no existing association, apply CREATE defaults (schema→frozen STRONG,
+      // If no existing association, apply UPSERT defaults (schema→STRONG not frozen,
       // default lifecycle to WEAK, default subject for STRONG).
       String unqualifiedSubject = info.getSubject();
       String defaultSubject = defaultSubjectPrefix + associationType;
@@ -1233,8 +1227,8 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         if (association != null) {
           unqualifiedSubject = association.getSubject();
         } else if (!isCreate) {
-          // UPSERT creating new association — apply CREATE defaults
-          info.applyCreateDefaults();
+          // UPSERT creating new association — apply UPSERT defaults
+          info.applyUpsertDefaults();
           if (info.getLifecycle() == LifecyclePolicy.STRONG) {
             unqualifiedSubject = defaultSubject;
           } else {
@@ -1273,17 +1267,6 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
           && !unqualifiedSubject.equals(defaultSubject)) {
         throw new IllegalPropertyException(
             "subject", "frozen associations must use subject '" + defaultSubject + "'");
-      }
-
-      // Check frozen consistency at the resource level
-      if (existingFrozenState != null && info.getFrozen() != null
-          && !existingFrozenState.equals(info.getFrozen())) {
-        throw new IllegalPropertyException(
-            "frozen", "all associations for a resource must be consistently "
-                + "frozen or non-frozen");
-      }
-      if (association == null && existingFrozenState == null && info.getFrozen() != null) {
-        existingFrozenState = info.getFrozen();
       }
 
       if (association == null) {

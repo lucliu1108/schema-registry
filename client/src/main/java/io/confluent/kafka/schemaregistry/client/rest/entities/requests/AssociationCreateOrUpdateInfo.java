@@ -151,26 +151,6 @@ public class AssociationCreateOrUpdateInfo {
     return JacksonMapper.INSTANCE.writeValueAsString(this);
   }
 
-  // Validates and applies defaults for three association models:
-  //
-  // 1. Frozen STRONG: Must provide a schema on create. Subject must be the default
-  //    format (:.ns:name-type) and is auto-defaulted if omitted.
-  //    CREATE+schema implies frozen STRONG automatically.
-  //
-  // 2. Non-frozen STRONG: Schema is optional. Subject defaults to :.ns:name-type
-  //    if omitted on create. Can be created without a schema if the subject
-  //    already has one.
-  //
-  // 3. WEAK: Cannot have a schema or be frozen. Subject is required on create
-  //    (no defaulting).
-  //
-  // For UPDATE, only associationType is required. Lifecycle, frozen, and subject
-  // are left null if unspecified — the server fills them from the existing
-  // association. If no existing association exists, CREATE defaults are applied
-  // on the server.
-  //
-  // Validation order: check user-provided subject, apply create defaults
-  // (CREATE only), default associationType, then enforce lifecycle-specific rules.
   /**
    * Applies CREATE defaults: schema implies frozen STRONG, frozen requires schema,
    * non-schema defaults to non-frozen, lifecycle defaults to WEAK.
@@ -192,6 +172,30 @@ public class AssociationCreateOrUpdateInfo {
           "schema", "schema must be provided when creating a frozen association");
     } else {
       setFrozen(false);
+    }
+    if (getLifecycle() == null) {
+      setLifecycle(LifecyclePolicy.WEAK);
+    }
+  }
+
+  /**
+   * Applies UPSERT defaults when no existing association exists:
+   * schema implies STRONG (not frozen), lifecycle defaults to WEAK.
+   */
+  public void applyUpsertDefaults() {
+    if (getSchema() != null) {
+      if (getLifecycle() == LifecyclePolicy.WEAK) {
+        throw new IllegalPropertyException(
+            "lifecycle", "cannot be WEAK when schema is provided");
+      }
+      setLifecycle(LifecyclePolicy.STRONG);
+      if (getFrozen() == null) {
+        setFrozen(false);
+      }
+    } else {
+      if (getFrozen() == null) {
+        setFrozen(false);
+      }
     }
     if (getLifecycle() == null) {
       setLifecycle(LifecyclePolicy.WEAK);

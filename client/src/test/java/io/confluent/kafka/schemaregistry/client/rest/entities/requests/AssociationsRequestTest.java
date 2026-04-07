@@ -376,10 +376,10 @@ public class AssociationsRequestTest {
     assertEquals(":.test-ns:test-resource-value", info.getSubject());
   }
 
-  // Requirement: Frozen/non-frozen consistency at resource level
+  // Mixed frozen/non-frozen is now allowed at the resource level
 
-  @Test(expected = IllegalPropertyException.class)
-  public void testCreateOpMixedFrozenAndNonFrozenThrows() {
+  @Test
+  public void testCreateOpMixedFrozenAndNonFrozenSucceeds() {
     RegisterSchemaRequest schema = new RegisterSchemaRequest();
     schema.setSchema("{\"type\":\"string\"}");
     AssociationCreateOp frozenOp = new AssociationCreateOp(
@@ -420,8 +420,8 @@ public class AssociationsRequestTest {
     request.validate(false);
   }
 
-  @Test(expected = IllegalPropertyException.class)
-  public void testCreateInfoMixedFrozenAndNonFrozenThrows() {
+  @Test
+  public void testCreateInfoMixedFrozenAndNonFrozenSucceeds() {
     RegisterSchemaRequest schema = new RegisterSchemaRequest();
     schema.setSchema("{\"type\":\"string\"}");
     AssociationCreateOrUpdateInfo frozenInfo = new AssociationCreateOrUpdateInfo(

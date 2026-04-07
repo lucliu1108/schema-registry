@@ -169,6 +169,30 @@ public abstract class AssociationCreateOrUpdateOp extends AssociationOp {
     }
   }
 
+  /**
+   * Applies UPSERT defaults when no existing association exists:
+   * schema implies STRONG (not frozen), lifecycle defaults to WEAK.
+   */
+  public void applyUpsertDefaults() {
+    if (getSchema() != null) {
+      if (getLifecycle() == LifecyclePolicy.WEAK) {
+        throw new IllegalPropertyException(
+            "lifecycle", "cannot be WEAK when schema is provided");
+      }
+      setLifecycle(LifecyclePolicy.STRONG);
+      if (getFrozen() == null) {
+        setFrozen(false);
+      }
+    } else {
+      if (getFrozen() == null) {
+        setFrozen(false);
+      }
+    }
+    if (getLifecycle() == null) {
+      setLifecycle(LifecyclePolicy.WEAK);
+    }
+  }
+
   // Base validation for the batch path (shared by CREATE and UPSERT ops).
   // Validates subject format, defaults associationType, and enforces WEAK
   // restrictions (no schema, no frozen). Lifecycle is NOT defaulted here —
