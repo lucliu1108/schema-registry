@@ -143,60 +143,46 @@ public abstract class AssociationCreateOrUpdateOp extends AssociationOp {
   }
 
   /**
-   * Applies CREATE defaults: schema implies frozen STRONG, frozen requires schema,
-   * non-schema defaults to non-frozen, lifecycle defaults to WEAK.
+   * Applies defaults for association creation or upsert.
+   * For CREATE: schema implies frozen STRONG; frozen=false or WEAK with schema are rejected.
+   * For UPSERT: schema implies non-frozen STRONG; frozen and lifecycle are only defaulted if null.
    */
-  public void applyCreateDefaults() {
-    if (getSchema() != null) {
-      if (getLifecycle() == LifecyclePolicy.WEAK) {
-        throw new IllegalPropertyException(
-            "lifecycle", "cannot be WEAK when schema is provided for create");
-      }
-      if (Boolean.FALSE.equals(getFrozen())) {
-        throw new IllegalPropertyException(
-            "frozen", "cannot be false when schema is provided for create");
-      }
-      setLifecycle(LifecyclePolicy.STRONG);
-      setFrozen(true);
-    } else if (Boolean.TRUE.equals(getFrozen())) {
-      throw new IllegalPropertyException(
-          "schema", "schema must be provided when creating a frozen association");
-    } else {
-      setFrozen(false);
-    }
-    if (getLifecycle() == null) {
-      setLifecycle(LifecyclePolicy.WEAK);
-    }
-  }
-
-  /**
-   * Applies UPSERT defaults when no existing association exists:
-   * schema implies STRONG (not frozen), lifecycle defaults to WEAK.
-   */
-  public void applyUpsertDefaults() {
+  public void applyDefaults(boolean isCreate) {
     if (getSchema() != null) {
       if (getLifecycle() == LifecyclePolicy.WEAK) {
         throw new IllegalPropertyException(
             "lifecycle", "cannot be WEAK when schema is provided");
       }
+      if (isCreate && Boolean.FALSE.equals(getFrozen())) {
+        throw new IllegalPropertyException(
+            "frozen", "cannot be false when schema is provided for create");
+      }
       setLifecycle(LifecyclePolicy.STRONG);
       if (getFrozen() == null) {
-        setFrozen(false);
+        setFrozen(isCreate);
       }
     } else {
+      if (isCreate && Boolean.TRUE.equals(getFrozen())) {
+        throw new IllegalPropertyException(
+            "schema", "schema must be provided when creating a frozen association");
+      }
       if (getFrozen() == null) {
         setFrozen(false);
       }
     }
     if (getLifecycle() == null) {
       setLifecycle(LifecyclePolicy.WEAK);
+    }
+    if (getLifecycle() == LifecyclePolicy.WEAK && Boolean.TRUE.equals(getFrozen())) {
+      throw new IllegalPropertyException(
+          "frozen", "association with lifecycle of WEAK cannot be frozen");
     }
   }
 
   // Base validation for the batch path (shared by CREATE and UPSERT ops).
   // Validates subject format, defaults associationType, and enforces WEAK
   // restrictions (no schema, no frozen). Lifecycle is NOT defaulted here —
-  // CREATE calls applyCreateDefaults() first, while UPSERT leaves it null
+  // CREATE calls applyDefaults() first, while UPSERT leaves it null
   // (the server uses the existing association's lifecycle).
   public void validate(boolean dryRun) {
     if (getSubject() != null) {

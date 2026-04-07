@@ -1228,7 +1228,7 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
           unqualifiedSubject = association.getSubject();
         } else if (!isCreate) {
           // UPSERT creating new association — apply UPSERT defaults
-          info.applyUpsertDefaults();
+          info.applyDefaults(false);
           if (info.getLifecycle() == LifecyclePolicy.STRONG) {
             unqualifiedSubject = defaultSubject;
           } else {

@@ -54,7 +54,7 @@ public class AssociationCreateOp extends AssociationCreateOrUpdateOp {
   // See AssociationCreateOrUpdateInfo.validate() for the full model description.
   @Override
   public void validate(boolean dryRun) {
-    applyCreateDefaults();
+    applyDefaults(true);
     super.validate(dryRun);
     if (getSubject() == null && getLifecycle() == LifecyclePolicy.WEAK) {
       throw new IllegalPropertyException(
