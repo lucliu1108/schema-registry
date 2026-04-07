@@ -1273,9 +1273,12 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
         if (Boolean.TRUE.equals(info.getFrozen()) && qualifiedSubject != null) {
           Schema latestSchema = getLatestVersion(qualifiedSubject);
           if (latestSchema != null) {
+            boolean normalize = Boolean.TRUE.equals(info.getNormalize());
             if (info.getSchema() == null
                 || latestSchema.getVersion() != 1
-                || !latestSchema.getSchema().equals(info.getSchema().getSchema())) {
+                || lookUpSchemaUnderSubject(qualifiedSubject,
+                    new Schema(qualifiedSubject, info.getSchema()),
+                    normalize, false) == null) {
               throw new IllegalPropertyException(
                   "frozen", "cannot create a frozen association when schemas already exist "
                       + "in the subject");
