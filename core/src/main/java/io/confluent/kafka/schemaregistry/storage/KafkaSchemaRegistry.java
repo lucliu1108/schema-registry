@@ -1268,12 +1268,18 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       }
 
       if (association == null) {
-        // Ensure no schemas already exist in the subject for frozen associations
+        // Ensure no schemas already exist in the subject for frozen associations,
+        // unless the latest schema matches what we're registering (retry of partial failure)
         if (Boolean.TRUE.equals(info.getFrozen()) && qualifiedSubject != null) {
-          if (getLatestVersion(qualifiedSubject) != null) {
-            throw new IllegalPropertyException(
-                "frozen", "cannot create a frozen association when schemas already exist "
-                    + "in the subject");
+          Schema latestSchema = getLatestVersion(qualifiedSubject);
+          if (latestSchema != null) {
+            if (info.getSchema() == null
+                || latestSchema.getVersion() != 1
+                || !latestSchema.getSchema().equals(info.getSchema().getSchema())) {
+              throw new IllegalPropertyException(
+                  "frozen", "cannot create a frozen association when schemas already exist "
+                      + "in the subject");
+            }
           }
         }
         continue;
