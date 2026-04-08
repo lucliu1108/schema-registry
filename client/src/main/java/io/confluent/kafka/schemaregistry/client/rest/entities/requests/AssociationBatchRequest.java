@@ -64,13 +64,4 @@ public class AssociationBatchRequest {
   public String toJson() throws IOException {
     return JacksonMapper.INSTANCE.writeValueAsString(this);
   }
-
-  public void validate(boolean dryRun) {
-    if (requests == null) {
-      return;
-    }
-    for (AssociationOpRequest request : requests) {
-      request.validate(dryRun);
-    }
-  }
 }

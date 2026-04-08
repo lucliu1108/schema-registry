@@ -294,17 +294,6 @@ public class AssociationsRequestTest {
   }
 
   @Test
-  public void testBatchRequestValidateCallsOpRequestValidate() {
-    AssociationCreateOp op = new AssociationCreateOp(
-        "test-subject", null, LifecyclePolicy.STRONG, null, null, null);
-    AssociationOpRequest opRequest = new AssociationOpRequest(
-        "test-resource", "test-ns", "test-id", null, Collections.singletonList(op));
-    AssociationBatchRequest batchRequest = new AssociationBatchRequest(
-        Collections.singletonList(opRequest));
-    batchRequest.validate(false);
-  }
-
-  @Test
   public void testCheckSubjectValidatesUserProvidedSubject() {
     AssociationCreateOp op = new AssociationCreateOp(
         "valid-subject", null, LifecyclePolicy.STRONG, null, null, null);
