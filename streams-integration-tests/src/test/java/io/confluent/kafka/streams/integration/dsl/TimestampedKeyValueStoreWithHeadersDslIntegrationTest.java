@@ -56,6 +56,7 @@ import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StoreQueryParameters;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.Grouped;
 import org.apache.kafka.streams.kstream.KTable;
@@ -64,6 +65,7 @@ import org.apache.kafka.streams.kstream.Produced;
 import org.apache.kafka.streams.kstream.ValueTransformerWithKey;
 import org.apache.kafka.streams.processor.ProcessorContext;
 import org.apache.kafka.streams.processor.StateStore;
+import org.apache.kafka.streams.state.KeyValueIterator;
 import org.apache.kafka.streams.state.QueryableStoreType;
 import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.Stores;
@@ -1511,6 +1513,140 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             }
             assertNull(changelogValues.get("hello"), "Changelog: hello should end with tombstone");
             assertNotNull(changelogValues.get("streams"), "Changelog: streams should have a value");
+
+        } finally {
+            closeStreams(streams);
+        }
+    }
+
+    /**
+     * Verifies that {@code prefixScan()} works correctly on a headers-aware store
+     * with Schema Registry header-based serialization.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void shouldPrefixScanWithHeaders(boolean cachingEnabled) throws Exception {
+        String suffix = cachingEnabled ? "-cached" : "-uncached";
+        String inputTopic = "dsl-prefixscan-input" + suffix;
+        String outputTopic = "dsl-prefixscan-output" + suffix;
+        String storeName = "dsl-prefixscan-store" + suffix;
+
+        createTopics(inputTopic, outputTopic);
+
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        // Materialize a KTable with a headers-aware store, then stream it out.
+        StreamsBuilder builder = new StreamsBuilder();
+        builder.table(inputTopic, Consumed.with(keySerde, valueSerde),
+                Materialized.<GenericRecord, GenericRecord>as(
+                        Stores.persistentTimestampedKeyValueStoreWithHeaders(storeName))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde))
+            .toStream()
+            .to(outputTopic, Produced.with(keySerde, valueSerde));
+
+        KafkaStreams streams = null;
+        try {
+            streams = startStreamsAndAwaitRunning(
+                builder.build(), "dsl-prefixscan-test" + suffix, cachingEnabled);
+
+            try (KafkaProducer<GenericRecord, GenericRecord> producer =
+                     new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("ka"), createTextLine("value ka"))).get();
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("kb"), createTextLine("value kb"))).get();
+                producer.send(new ProducerRecord<>(inputTopic,
+                    createKey("zz"), createTextLine("value zz"))).get();
+                producer.flush();
+            }
+
+            List<ConsumerRecord<GenericRecord, GenericRecord>> results =
+                consumeRecords(outputTopic, "dsl-prefixscan-consumer" + suffix, 3);
+            assertEquals(3, results.size(), "Should have 3 output records");
+
+            // IQv1: get the store
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store =
+                streams.store(
+                    StoreQueryParameters.fromNameAndType(storeName,
+                        new TimestampedKeyValueStoreWithHeadersType<>()));
+            assertNotNull(store, "Store should be accessible via IQv1");
+
+            // prefixScan with "ka" — verifies SR serialization works for prefix key
+            // and headers are correctly deserialized on the return path.
+            List<KeyValue<GenericRecord, ValueTimestampHeaders<GenericRecord>>> kaResults =
+                new ArrayList<>();
+            try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.prefixScan(createKey("ka"), keySerde.serializer())) {
+                while (iter.hasNext()) {
+                    kaResults.add(iter.next());
+                }
+            }
+
+            assertEquals(1, kaResults.size(), "prefixScan('ka') should return 1 entry");
+            assertEquals("ka", kaResults.get(0).key.get("word").toString());
+            assertEquals("value ka", kaResults.get(0).value.value().get("line").toString());
+            assertSchemaIdHeaders(kaResults.get(0).value.headers(), "prefixScan ka");
+
+            // prefixScan with "kb"
+            List<KeyValue<GenericRecord, ValueTimestampHeaders<GenericRecord>>> kbResults =
+                new ArrayList<>();
+            try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.prefixScan(createKey("kb"), keySerde.serializer())) {
+                while (iter.hasNext()) {
+                    kbResults.add(iter.next());
+                }
+            }
+
+            assertEquals(1, kbResults.size(), "prefixScan('kb') should return 1 entry");
+            assertEquals("kb", kbResults.get(0).key.get("word").toString());
+            assertEquals("value kb", kbResults.get(0).value.value().get("line").toString());
+            assertSchemaIdHeaders(kbResults.get(0).value.headers(), "prefixScan kb");
+
+            // prefixScan with "zz"
+            List<KeyValue<GenericRecord, ValueTimestampHeaders<GenericRecord>>> zzResults =
+                new ArrayList<>();
+            try (KeyValueIterator<GenericRecord, ValueTimestampHeaders<GenericRecord>> iter =
+                     store.prefixScan(createKey("zz"), keySerde.serializer())) {
+                while (iter.hasNext()) {
+                    zzResults.add(iter.next());
+                }
+            }
+            assertEquals(1, zzResults.size(), "prefixScan('zz') should return 1 entry");
+            assertEquals("zz", zzResults.get(0).key.get("word").toString());
+            assertEquals("value zz", zzResults.get(0).value.value().get("line").toString());
+            assertSchemaIdHeaders(zzResults.get(0).value.headers(), "prefixScan zz");
+
+            // IQv1 verification
+            ValueTimestampHeaders<GenericRecord> kaGet = store.get(createKey("ka"));
+            assertNotNull(kaGet, "IQv1: ka should exist in store");
+            assertEquals("value ka", kaGet.value().get("line").toString());
+            assertSchemaIdHeaders(kaGet.headers(), "IQv1 get ka");
+
+            ValueTimestampHeaders<GenericRecord> kbGet = store.get(createKey("kb"));
+            assertNotNull(kbGet, "IQv1: kb should exist in store");
+            assertEquals("value kb", kbGet.value().get("line").toString());
+            assertSchemaIdHeaders(kbGet.headers(), "IQv1 get kb");
+
+            ValueTimestampHeaders<GenericRecord> zzGet = store.get(createKey("zz"));
+            assertNotNull(zzGet, "IQv1: zz should exist in store");
+            assertEquals("value zz", zzGet.value().get("line").toString());
+            assertSchemaIdHeaders(zzGet.headers(), "IQv1 get zz");
+
+            // Changelog verification
+            String changelogTopic = "dsl-prefixscan-test" + suffix + "-" + storeName + "-changelog";
+            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+                consumeChangelogRecords(changelogTopic, "dsl-prefixscan-changelog-consumer" + suffix, 3);
+            assertTrue(changelogRecords.size() >= 3,
+                "Changelog should have at least 3 records, got " + changelogRecords.size());
+
+            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+                if (record.value() != null) {
+                    assertSchemaIdHeaders(record.headers(),
+                        "changelog " + record.key().get("word"));
+                }
+            }
 
         } finally {
             closeStreams(streams);
