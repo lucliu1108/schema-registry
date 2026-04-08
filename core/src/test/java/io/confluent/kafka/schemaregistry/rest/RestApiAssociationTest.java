@@ -2511,7 +2511,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
   }
 
   @Test
-  public void testCreateNonFrozenThenUpsertFrozenSucceeds() throws Exception {
+  public void testCreateNonFrozenThenCreateFrozenSucceeds() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
     String resourceId = "nonfrozen-then-frozen-123";
@@ -2527,16 +2527,16 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     restApp.restClient.createAssociation(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
 
-    // Now upsert a frozen association for the same resource — should succeed
+    // Create a frozen association for the same resource via CREATE — should succeed
     RegisterSchemaRequest schemaRequest = new RegisterSchemaRequest();
     schemaRequest.setSchema(allSchemas.get(1));
-    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+    AssociationCreateOrUpdateRequest createRequest2 = new AssociationCreateOrUpdateRequest(
         resourceName, resourceNamespace, resourceId, "topic",
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
-            null, "value", LifecyclePolicy.STRONG, true, schemaRequest, null)));
+            null, "value", null, null, schemaRequest, null)));
 
-    restApp.restClient.createOrUpdateAssociation(
-        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest2);
 
     // Verify both exist with different frozen states
     List<Association> associations = restApp.restClient.getAssociationsByResourceId(
@@ -2546,7 +2546,7 @@ public class RestApiAssociationTest extends ClusterTestHarness {
   }
 
   @Test
-  public void testCreateFrozenThenUpsertAnotherFrozenSucceeds() throws Exception {
+  public void testCreateFrozenThenCreateAnotherFrozenSucceeds() throws Exception {
     String resourceName = "topic1";
     String resourceNamespace = "default";
     String resourceId = "all-frozen-123";
@@ -2564,16 +2564,16 @@ public class RestApiAssociationTest extends ClusterTestHarness {
     restApp.restClient.createAssociation(
         RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest);
 
-    // Upsert another frozen association for the same resource — should succeed
+    // Create another frozen association for the same resource via CREATE — should succeed
     RegisterSchemaRequest schemaRequest2 = new RegisterSchemaRequest();
     schemaRequest2.setSchema(allSchemas.get(1));
-    AssociationCreateOrUpdateRequest upsertRequest = new AssociationCreateOrUpdateRequest(
+    AssociationCreateOrUpdateRequest createRequest2 = new AssociationCreateOrUpdateRequest(
         resourceName, resourceNamespace, resourceId, "topic",
         ImmutableList.of(new AssociationCreateOrUpdateInfo(
-            null, "value", LifecyclePolicy.STRONG, true, schemaRequest2, null)));
+            null, "value", null, null, schemaRequest2, null)));
 
-    restApp.restClient.createOrUpdateAssociation(
-        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, upsertRequest);
+    restApp.restClient.createAssociation(
+        RestService.DEFAULT_REQUEST_PROPERTIES, null, false, createRequest2);
 
     // Verify both exist
     List<Association> associations = restApp.restClient.getAssociationsByResourceId(
