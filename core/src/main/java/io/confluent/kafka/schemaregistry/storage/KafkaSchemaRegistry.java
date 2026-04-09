@@ -1244,10 +1244,13 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
               .toQualifiedSubject()
           : null;
 
-      // Enforce requirements using effective lifecycle (from request or existing association)
+      // Effective lifecycle: from request, or from existing association for updates
       LifecyclePolicy effectiveLifecycle = info.getLifecycle() != null
           ? info.getLifecycle()
           : (association != null ? association.getLifecycle() : null);
+      if (effectiveLifecycle == null) {
+        throw new IllegalPropertyException("lifecycle", "lifecycle must be set");
+      }
       if (effectiveLifecycle == LifecyclePolicy.WEAK) {
         if (info.getSchema() != null) {
           throw new IllegalPropertyException(
@@ -1357,26 +1360,27 @@ public class KafkaSchemaRegistry extends AbstractSchemaRegistry implements
       LifecyclePolicy lifecycle = info.getLifecycle() != null
           ? info.getLifecycle()
           : (association != null ? association.getLifecycle() : null);
-      if (lifecycle != null) {
-        switch (lifecycle) {
-          case STRONG:
-            if (!assocsBySubject.isEmpty()) {
-              throw new AssociationForSubjectExistsException(unqualifiedSubject);
-            }
-            break;
-          case WEAK:
-            if (Boolean.TRUE.equals(info.getFrozen())) {
-              throw new IllegalPropertyException(
-                  "frozen", "association with lifecycle of WEAK cannot be frozen");
-            }
-            if (assocsBySubject.stream()
-                .anyMatch(assoc -> assoc.getLifecycle() == LifecyclePolicy.STRONG)) {
-              throw new StrongAssociationForSubjectExistsException(unqualifiedSubject);
-            }
-            break;
-          default:
-            break;
-        }
+      if (lifecycle == null) {
+        throw new IllegalPropertyException("lifecycle", "lifecycle must be set");
+      }
+      switch (lifecycle) {
+        case STRONG:
+          if (!assocsBySubject.isEmpty()) {
+            throw new AssociationForSubjectExistsException(unqualifiedSubject);
+          }
+          break;
+        case WEAK:
+          if (Boolean.TRUE.equals(info.getFrozen())) {
+            throw new IllegalPropertyException(
+                "frozen", "association with lifecycle of WEAK cannot be frozen");
+          }
+          if (assocsBySubject.stream()
+              .anyMatch(assoc -> assoc.getLifecycle() == LifecyclePolicy.STRONG)) {
+            throw new StrongAssociationForSubjectExistsException(unqualifiedSubject);
+          }
+          break;
+        default:
+          break;
       }
     }
 
