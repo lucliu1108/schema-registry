@@ -27,7 +27,7 @@ public abstract class SubjectValue extends SchemaRegistryValue {
   private String subject;
 
   public SubjectValue(@JsonProperty("subject") String subject) {
-    this.subject = Objects.requireNonNull(subject, "subject");
+    this.subject = subject;
   }
 
   @JsonProperty("subject")
