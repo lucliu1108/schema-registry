@@ -17,14 +17,128 @@
 package io.confluent.kafka.schemaregistry.type;
 
 import com.fasterxml.jackson.databind.JsonNode;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.ByteBuffer;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneOffset;
+import java.util.Base64;
 import java.util.Iterator;
 import java.util.Map;
 
 /**
- * Converts a Jackson {@link JsonNode} to a {@link Variant} (metadata + value binary pair).
+ * Converts between Jackson {@link JsonNode} and {@link Variant} (metadata + value binary pair).
  */
 public class VariantJsonConverter {
+
+  /**
+   * Converts a Jackson JsonNode into a Variant.
+   *
+   * @param node the JSON node to convert
+   * @return a Variant containing the encoded metadata and value
+   */
+  private static final JsonNodeFactory FACTORY = JsonNodeFactory.instance;
+
+  /**
+   * Converts a Variant into a Jackson JsonNode.
+   *
+   * @param variant the Variant to convert
+   * @return a JsonNode representing the variant value
+   */
+  public static JsonNode toJsonNode(Variant variant) {
+    switch (variant.getType()) {
+      case OBJECT:
+        return objectToJson(variant);
+      case ARRAY:
+        return arrayToJson(variant);
+      case STRING:
+        return FACTORY.textNode(variant.getString());
+      case BYTE:
+        return FACTORY.numberNode(variant.getByte());
+      case SHORT:
+        return FACTORY.numberNode(variant.getShort());
+      case INT:
+        return FACTORY.numberNode(variant.getInt());
+      case LONG:
+        return FACTORY.numberNode(variant.getLong());
+      case FLOAT:
+        return FACTORY.numberNode(variant.getFloat());
+      case DOUBLE:
+        return FACTORY.numberNode(variant.getDouble());
+      case DECIMAL4:
+      case DECIMAL8:
+      case DECIMAL16:
+        return FACTORY.numberNode(variant.getDecimal());
+      case BOOLEAN:
+        return FACTORY.booleanNode(variant.getBoolean());
+      case NULL:
+        return FACTORY.nullNode();
+      case DATE:
+        return FACTORY.textNode(LocalDate.ofEpochDay(variant.getInt()).toString());
+      case TIMESTAMP_TZ:
+        return FACTORY.textNode(
+            Instant.ofEpochSecond(0, variant.getLong() * 1000).toString());
+      case TIMESTAMP_NTZ:
+        return FACTORY.textNode(
+            LocalDateTime.ofEpochSecond(
+                variant.getLong() / 1_000_000,
+                (int) (variant.getLong() % 1_000_000) * 1000,
+                ZoneOffset.UTC).toString());
+      case TIMESTAMP_NANOS_TZ:
+        return FACTORY.textNode(
+            Instant.ofEpochSecond(0, variant.getLong()).toString());
+      case TIMESTAMP_NANOS_NTZ:
+        return FACTORY.textNode(
+            LocalDateTime.ofEpochSecond(
+                variant.getLong() / 1_000_000_000,
+                (int) (variant.getLong() % 1_000_000_000),
+                ZoneOffset.UTC).toString());
+      case TIME:
+        return FACTORY.textNode(
+            LocalTime.ofNanoOfDay(variant.getLong() * 1000).toString());
+      case BINARY:
+        ByteBuffer bin = variant.getBinary();
+        byte[] binBytes = new byte[bin.remaining()];
+        bin.get(binBytes);
+        return FACTORY.textNode(Base64.getEncoder().encodeToString(binBytes));
+      case UUID:
+        return FACTORY.textNode(variant.getUUID().toString());
+      default:
+        throw new IllegalArgumentException("Unsupported variant type: " + variant.getType());
+    }
+  }
+
+  private static JsonNode objectToJson(Variant variant) {
+    ObjectNode obj = FACTORY.objectNode();
+    for (int i = 0; i < variant.numObjectElements(); i++) {
+      Variant.ObjectField field = variant.getFieldAtIndex(i);
+      obj.set(field.key, toJsonNode(field.value));
+    }
+    return obj;
+  }
+
+  private static JsonNode arrayToJson(Variant variant) {
+    ArrayNode arr = FACTORY.arrayNode();
+    for (int i = 0; i < variant.numArrayElements(); i++) {
+      arr.add(toJsonNode(variant.getElementAtIndex(i)));
+    }
+    return arr;
+  }
+
+  /**
+   * Converts a Variant into a JSON string.
+   *
+   * @param variant the Variant to convert
+   * @return the JSON string representation
+   */
+  public static String toJsonString(Variant variant) {
+    return toJsonNode(variant).toString();
+  }
 
   /**
    * Converts a Jackson JsonNode into a Variant.
