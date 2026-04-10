@@ -20,7 +20,7 @@ import org.apache.avro.LogicalType;
 import org.apache.avro.Schema;
 
 public class VariantLogicalType extends LogicalType {
-  static final String NAME = "variant";
+  public static final String NAME = "variant";
   private static final VariantLogicalType INSTANCE = new VariantLogicalType();
 
   static VariantLogicalType get() {
