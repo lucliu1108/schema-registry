@@ -415,8 +415,8 @@ public class VariantBuilder {
    * Starts appending an object to this variant builder. The returned VariantObjectBuilder is used
    * to append object keys and values. startObject() must be called before endObject().
    * No append*() methods can be called in between startObject() and endObject().
-   * <p>
-   * Example usage:
+   *
+   * <p>Example usage:
    * VariantBuilder builder = new VariantBuilder();
    * VariantObjectBuilder objBuilder = builder.startObject();
    * objBuilder.appendKey("key1");
@@ -428,10 +428,12 @@ public class VariantBuilder {
   public VariantObjectBuilder startObject() {
     onStartNested();
     if (objectBuilder != null) {
-      throw new IllegalStateException("Cannot call startObject() without calling endObject() first.");
+      throw new IllegalStateException(
+          "Cannot call startObject() without calling endObject() first.");
     }
     if (arrayBuilder != null) {
-      throw new IllegalStateException("Cannot call startObject() without calling endArray() first.");
+      throw new IllegalStateException(
+          "Cannot call startObject() without calling endArray() first.");
     }
     this.objectBuilder = new VariantObjectBuilder(this.metadata);
     return objectBuilder;
@@ -445,7 +447,8 @@ public class VariantBuilder {
     return startObject();
   }
 
-  public VariantObjectBuilder startOrContinuePartialObject(ByteBuffer value, Set<String> suppressedKeys) {
+  public VariantObjectBuilder startOrContinuePartialObject(
+      ByteBuffer value, Set<String> suppressedKeys) {
     VariantObjectBuilder objectBuilder = startOrContinueObject();
 
     // copy values to a new builder
@@ -473,7 +476,8 @@ public class VariantBuilder {
    */
   public void endObject() {
     if (objectBuilder == null) {
-      throw new IllegalStateException("Cannot call endObject() without calling startObject() first.");
+      throw new IllegalStateException(
+          "Cannot call endObject() without calling startObject() first.");
     }
     ArrayList<FieldEntry> fields = objectBuilder.validateAndGetFields();
     int numFields = fields.size();
@@ -486,7 +490,7 @@ public class VariantBuilder {
     for (int i = 1; i < numFields; ++i) {
       maxId = Math.max(maxId, fields.get(i).id);
       if (fields.get(i).id == fields.get(i - 1).id) {
-        // Found a duplicate key. Keep the field with the greater offset, because it was written last.
+        // Found a duplicate key. Keep the field with the greater offset.
         if (fields.get(distinctPos).offset < fields.get(i).offset) {
           fields.set(distinctPos, fields.get(i));
         }
@@ -542,8 +546,8 @@ public class VariantBuilder {
    * Starts appending an array to this variant builder. The returned VariantArrayBuilder is used to
    * append values ot the array. startArray() must be called before endArray(). No append*() methods
    * can be called in between startArray() and endArray().
-   * <p>
-   * Example usage:
+   *
+   * <p>Example usage:
    * VariantBuilder builder = new VariantBuilder();
    * VariantArrayBuilder arrayBuilder = builder.startArray();
    * arrayBuilder.appendString("value1");
@@ -555,10 +559,12 @@ public class VariantBuilder {
   public VariantArrayBuilder startArray() {
     onStartNested();
     if (objectBuilder != null) {
-      throw new IllegalStateException("Cannot call startArray() without calling endObject() first.");
+      throw new IllegalStateException(
+          "Cannot call startArray() without calling endObject() first.");
     }
     if (arrayBuilder != null) {
-      throw new IllegalStateException("Cannot call startArray() without calling endArray() first.");
+      throw new IllegalStateException(
+          "Cannot call startArray() without calling endArray() first.");
     }
     this.arrayBuilder = new VariantArrayBuilder(this.metadata);
     return arrayBuilder;
@@ -592,7 +598,8 @@ public class VariantBuilder {
     for (int i = 0; i < numElements; ++i) {
       VariantUtil.writeLong(writeBuffer, offsetStart + i * offsetSize, offsets.get(i), offsetSize);
     }
-    VariantUtil.writeLong(writeBuffer, offsetStart + numElements * offsetSize, dataSize, offsetSize);
+    VariantUtil.writeLong(writeBuffer,
+        offsetStart + numElements * offsetSize, dataSize, offsetSize);
     writePos += dataOffset + dataSize;
     this.arrayBuilder = null;
   }
@@ -605,9 +612,11 @@ public class VariantBuilder {
   }
 
   protected void onStartNested() {
-    checkMultipleNested("Cannot call startObject()/startArray() without calling endObject()/endArray() first.");
+    checkMultipleNested("Cannot call startObject()/startArray() "
+        + "without calling endObject()/endArray() first.");
     if (writePos > 0) {
-      throw new IllegalStateException("Cannot call startObject()/startArray() after appending a value.");
+      throw new IllegalStateException(
+          "Cannot call startObject()/startArray() after appending a value.");
     }
   }
 
@@ -620,11 +629,13 @@ public class VariantBuilder {
   protected void checkAppendWhileNested() {
     if (objectBuilder != null) {
       throw new IllegalStateException(
-          "Cannot call append() methods while an object is being built. Must call endObject() first.");
+          "Cannot call append() methods while an object is being built. "
+              + "Must call endObject() first.");
     }
     if (arrayBuilder != null) {
       throw new IllegalStateException(
-          "Cannot call append() methods while an array is being built. Must call endArray() first.");
+          "Cannot call append() methods while an array is being built. "
+              + "Must call endArray() first.");
     }
   }
 

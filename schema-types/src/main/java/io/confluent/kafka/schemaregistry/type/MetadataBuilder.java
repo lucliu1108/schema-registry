@@ -63,7 +63,8 @@ public class MetadataBuilder implements Metadata {
       System.arraycopy(key, 0, metadata, dataOffset + currentOffset, key.length);
       currentOffset += key.length;
     }
-    VariantUtil.writeLong(metadata, offsetListOffset + numKeys * offsetSize, currentOffset, offsetSize);
+    VariantUtil.writeLong(metadata,
+        offsetListOffset + numKeys * offsetSize, currentOffset, offsetSize);
     return ByteBuffer.wrap(metadata);
   }
 

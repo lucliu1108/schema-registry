@@ -42,7 +42,8 @@ public class VariantArrayBuilder extends VariantBuilder {
   ArrayList<Integer> validateAndGetOffsets() {
     if (offsets.size() != numValues) {
       throw new IllegalStateException(String.format(
-          "Number of offsets (%d) do not match the number of values (%d).", offsets.size(), numValues));
+          "Number of offsets (%d) do not match the number of values (%d).",
+          offsets.size(), numValues));
     }
     checkMultipleNested("Cannot call endArray() while a nested object/array is still open.");
     return offsets;
@@ -57,7 +58,8 @@ public class VariantArrayBuilder extends VariantBuilder {
 
   @Override
   protected void onStartNested() {
-    checkMultipleNested("Cannot call startObject()/startArray() without calling endObject()/endArray() first.");
+    checkMultipleNested("Cannot call startObject()/startArray() "
+        + "without calling endObject()/endArray() first.");
     offsets.add(writePos);
     numValues++;
   }

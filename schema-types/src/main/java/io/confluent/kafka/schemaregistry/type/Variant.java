@@ -45,8 +45,10 @@ public final class Variant {
     this(value, 0, value.length, metadata, 0, metadata.length);
   }
 
-  public Variant(byte[] value, int valuePos, int valueLength, byte[] metadata, int metadataPos, int metadataLength) {
-    this(ByteBuffer.wrap(value, valuePos, valueLength), ByteBuffer.wrap(metadata, metadataPos, metadataLength));
+  public Variant(byte[] value, int valuePos, int valueLength,
+      byte[] metadata, int metadataPos, int metadataLength) {
+    this(ByteBuffer.wrap(value, valuePos, valueLength),
+        ByteBuffer.wrap(metadata, metadataPos, metadataLength));
   }
 
   Variant(ByteBuffer value, Metadata metadata) {
@@ -336,7 +338,8 @@ public final class Variant {
   }
 
   private static Variant getElementAtIndex(
-      int index, ByteBuffer value, ByteBuffer metadata, int offsetSize, int offsetStart, int dataStart) {
+      int index, ByteBuffer value, ByteBuffer metadata,
+      int offsetSize, int offsetStart, int dataStart) {
     // offsetStart and dataStart are absolute positions in the `value` buffer.
     int offset = VariantUtil.readUnsigned(value, offsetStart + offsetSize * index, offsetSize);
     return new Variant(VariantUtil.slice(value, dataStart + offset), metadata);

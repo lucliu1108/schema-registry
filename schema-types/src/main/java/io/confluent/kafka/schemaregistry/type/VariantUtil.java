@@ -27,12 +27,13 @@ import java.util.HashMap;
  * This class defines constants related to the Variant format and provides functions for
  * manipulating Variant binaries.
  *
- * A Variant is made up of 2 binaries: value and metadata. A Variant value consists of a one-byte
+ * <p>A Variant is made up of 2 binaries: value and metadata. A Variant value consists of a one-byte
  * header and a number of content bytes (can be zero). The header byte is divided into upper 6 bits
  * (called "type info") and lower 2 bits (called "basic type"). The content format is explained in
  * the below constants for all possible basic type and type info values.
  *
- * The Variant metadata includes a version id and a dictionary of distinct strings (case-sensitive).
+ * <p>The Variant metadata includes a version id and a dictionary of distinct strings
+ * (case-sensitive).
  * Its binary format is:
  * - Version: 1-byte unsigned integer. The only acceptable value is 1 currently.
  * - Dictionary size: 4-byte little-endian unsigned integer. The number of keys in the
@@ -227,7 +228,8 @@ class VariantUtil {
   }
 
   static byte arrayHeader(boolean largeSize, int offsetSize) {
-    return (byte) (((largeSize ? 1 : 0) << (BASIC_TYPE_BITS + 2)) | ((offsetSize - 1) << BASIC_TYPE_BITS) | ARRAY);
+    return (byte) (((largeSize ? 1 : 0) << (BASIC_TYPE_BITS + 2))
+        | ((offsetSize - 1) << BASIC_TYPE_BITS) | ARRAY);
   }
 
   /**
@@ -294,7 +296,9 @@ class VariantUtil {
       result |= unsignedByteValue << (8 * i);
     }
     if (result < 0) {
-      throw new IllegalArgumentException(String.format("Failed to read unsigned int. numBytes: %d", numBytes));
+      throw new IllegalArgumentException(
+          String.format("Failed to read unsigned int. numBytes: %d",
+              numBytes));
     }
     return result;
   }
@@ -382,15 +386,19 @@ class VariantUtil {
     }
   }
 
-  private static IllegalArgumentException unexpectedType(Variant.Type type, ByteBuffer actualValue) {
-    String actualType = getTypeDebugString(actualValue);
-    return new IllegalArgumentException(String.format("Cannot read %s value as %s", actualType, type));
-  }
-
-  private static IllegalArgumentException unexpectedType(Variant.Type[] types, ByteBuffer actualValue) {
+  private static IllegalArgumentException unexpectedType(
+      Variant.Type type, ByteBuffer actualValue) {
     String actualType = getTypeDebugString(actualValue);
     return new IllegalArgumentException(
-        String.format("Cannot read %s value as one of %s", actualType, Arrays.toString(types)));
+        String.format("Cannot read %s value as %s", actualType, type));
+  }
+
+  private static IllegalArgumentException unexpectedType(
+      Variant.Type[] types, ByteBuffer actualValue) {
+    String actualType = getTypeDebugString(actualValue);
+    return new IllegalArgumentException(
+        String.format("Cannot read %s value as one of %s",
+            actualType, Arrays.toString(types)));
   }
 
   static boolean getBoolean(ByteBuffer value) {
@@ -481,7 +489,8 @@ class VariantUtil {
     int typeInfo = (value.get(value.position()) >> BASIC_TYPE_BITS) & PRIMITIVE_TYPE_MASK;
     if (basicType != PRIMITIVE) {
       throw unexpectedType(
-          new Variant.Type[] {Variant.Type.BYTE, Variant.Type.SHORT, Variant.Type.INT, Variant.Type.DATE},
+          new Variant.Type[] {Variant.Type.BYTE, Variant.Type.SHORT,
+              Variant.Type.INT, Variant.Type.DATE},
           value);
     }
     switch (typeInfo) {
@@ -494,7 +503,8 @@ class VariantUtil {
         return (int) readLong(value, value.position() + 1, 4);
       default:
         throw unexpectedType(
-            new Variant.Type[] {Variant.Type.BYTE, Variant.Type.SHORT, Variant.Type.INT, Variant.Type.DATE},
+            new Variant.Type[] {Variant.Type.BYTE, Variant.Type.SHORT,
+                Variant.Type.INT, Variant.Type.DATE},
             value);
     }
   }
@@ -557,7 +567,9 @@ class VariantUtil {
     int typeInfo = (value.get(value.position()) >> BASIC_TYPE_BITS) & PRIMITIVE_TYPE_MASK;
     if (basicType != PRIMITIVE) {
       throw unexpectedType(
-          new Variant.Type[] {Variant.Type.DECIMAL4, Variant.Type.DECIMAL8, Variant.Type.DECIMAL16}, value);
+          new Variant.Type[] {Variant.Type.DECIMAL4,
+              Variant.Type.DECIMAL8, Variant.Type.DECIMAL16},
+          value);
     }
     // Interpret the scale byte as unsigned. If it is a negative byte, the unsigned value must be
     // greater than `MAX_DECIMAL16_PRECISION` and will trigger an error in `checkDecimal`.
@@ -582,7 +594,8 @@ class VariantUtil {
         break;
       default:
         throw unexpectedType(
-            new Variant.Type[] {Variant.Type.DECIMAL4, Variant.Type.DECIMAL8, Variant.Type.DECIMAL16},
+            new Variant.Type[] {Variant.Type.DECIMAL4,
+                Variant.Type.DECIMAL8, Variant.Type.DECIMAL16},
             value);
     }
     return result;
@@ -726,7 +739,8 @@ class VariantUtil {
     int idStartOffset = 1 + sizeBytes;
     int offsetStartOffset = idStartOffset + numElements * idSize;
     int dataStartOffset = offsetStartOffset + (numElements + 1) * offsetSize;
-    return new ObjectInfo(numElements, idSize, offsetSize, idStartOffset, offsetStartOffset, dataStartOffset);
+    return new ObjectInfo(numElements, idSize, offsetSize,
+        idStartOffset, offsetStartOffset, dataStartOffset);
   }
 
   /**
@@ -798,11 +812,15 @@ class VariantUtil {
     int offset = readUnsigned(metadata, offsetListPos + (id) * offsetSize, offsetSize);
     int nextOffset = readUnsigned(metadata, offsetListPos + (id + 1) * offsetSize, offsetSize);
     if (offset > nextOffset) {
-      throw new IllegalStateException(String.format("Invalid offset: %d. next offset: %d", offset, nextOffset));
+      throw new IllegalStateException(
+          String.format("Invalid offset: %d. next offset: %d",
+              offset, nextOffset));
     }
     checkIndex(dataPos + nextOffset - 1, metadata.limit());
     if (metadata.hasArray() && !metadata.isReadOnly()) {
-      return new String(metadata.array(), metadata.arrayOffset() + dataPos + offset, nextOffset - offset);
+      return new String(metadata.array(),
+          metadata.arrayOffset() + dataPos + offset,
+          nextOffset - offset);
     } else {
       // ByteBuffer does not have an array, so we need to use the `get` method to read the bytes.
       byte[] metadataArray = new byte[nextOffset - offset];
