@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.util.TokenBuffer;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import io.confluent.avro.type.VariantConversion;
 import io.confluent.kafka.schemaregistry.client.rest.entities.SchemaEntity;
 import java.math.BigDecimal;
 import java.math.BigInteger;
