@@ -83,21 +83,25 @@ public class VariantJsonConverter {
       case TIMESTAMP_TZ:
         return FACTORY.textNode(
             Instant.ofEpochSecond(0, variant.getLong() * 1000).toString());
-      case TIMESTAMP_NTZ:
+      case TIMESTAMP_NTZ: {
+        long micros = variant.getLong();
         return FACTORY.textNode(
             LocalDateTime.ofEpochSecond(
-                variant.getLong() / 1_000_000,
-                (int) (variant.getLong() % 1_000_000) * 1000,
+                Math.floorDiv(micros, 1_000_000L),
+                (int) Math.floorMod(micros, 1_000_000L) * 1000,
                 ZoneOffset.UTC).toString());
+      }
       case TIMESTAMP_NANOS_TZ:
         return FACTORY.textNode(
             Instant.ofEpochSecond(0, variant.getLong()).toString());
-      case TIMESTAMP_NANOS_NTZ:
+      case TIMESTAMP_NANOS_NTZ: {
+        long nanos = variant.getLong();
         return FACTORY.textNode(
             LocalDateTime.ofEpochSecond(
-                variant.getLong() / 1_000_000_000,
-                (int) (variant.getLong() % 1_000_000_000),
+                Math.floorDiv(nanos, 1_000_000_000L),
+                (int) Math.floorMod(nanos, 1_000_000_000L),
                 ZoneOffset.UTC).toString());
+      }
       case TIME:
         return FACTORY.textNode(
             LocalTime.ofNanoOfDay(variant.getLong() * 1000).toString());
