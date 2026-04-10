@@ -87,8 +87,14 @@ public class ConnectVariant {
     }
     Variant variant = VariantJsonConverter.toVariant(value);
     Struct struct = new Struct(schema);
-    struct.put(METADATA_FIELD, variant.getMetadataBuffer().array());
-    struct.put(VALUE_FIELD, variant.getValueBuffer().array());
+    struct.put(METADATA_FIELD, toBytes(variant.getMetadataBuffer()));
+    struct.put(VALUE_FIELD, toBytes(variant.getValueBuffer()));
     return struct;
+  }
+
+  private static byte[] toBytes(java.nio.ByteBuffer buffer) {
+    byte[] bytes = new byte[buffer.remaining()];
+    buffer.duplicate().get(bytes);
+    return bytes;
   }
 }
