@@ -55,6 +55,7 @@ import org.everit.json.schema.ArraySchema;
 import org.everit.json.schema.BooleanSchema;
 import org.everit.json.schema.CombinedSchema;
 import org.everit.json.schema.ConstSchema;
+import org.everit.json.schema.EmptySchema;
 import org.everit.json.schema.EnumSchema;
 import org.everit.json.schema.NullSchema;
 import org.everit.json.schema.NumberSchema;
@@ -790,7 +791,7 @@ public class JsonSchemaData {
         break;
       case STRUCT:
         if (ConnectVariant.isVariant(schema)) {
-          builder = ObjectSchema.builder();
+          builder = EmptySchema.builder();
           unprocessedProps.put(CONNECT_TYPE_PROP, CONNECT_TYPE_VARIANT);
         } else if (isUnionSchema(schema)) {
           CombinedSchema.Builder combinedBuilder = CombinedSchema.builder();
@@ -1115,12 +1116,17 @@ public class JsonSchemaData {
       } else {
         builder = SchemaBuilder.array(toConnectSchema(ctx, itemsSchema));
       }
+    } else if (jsonSchema instanceof EmptySchema) {
+      String type = (String) jsonSchema.getUnprocessedProperties().get(CONNECT_TYPE_PROP);
+      if (CONNECT_TYPE_VARIANT.equals(type)) {
+        builder = ConnectVariant.builder();
+      } else {
+        throw new DataException("Unsupported empty schema without variant type");
+      }
     } else if (jsonSchema instanceof ObjectSchema) {
       ObjectSchema objectSchema = (ObjectSchema) jsonSchema;
       String type = (String) objectSchema.getUnprocessedProperties().get(CONNECT_TYPE_PROP);
-      if (CONNECT_TYPE_VARIANT.equals(type)) {
-        builder = ConnectVariant.builder();
-      } else if (CONNECT_TYPE_MAP.equals(type)) {
+      if (CONNECT_TYPE_MAP.equals(type)) {
         builder = SchemaBuilder.map(Schema.STRING_SCHEMA,
             toConnectSchema(ctx, objectSchema.getSchemaOfAdditionalProperties())
         );

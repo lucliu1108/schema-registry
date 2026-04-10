@@ -51,6 +51,7 @@ import org.everit.json.schema.ArraySchema;
 import org.everit.json.schema.BooleanSchema;
 import org.everit.json.schema.CombinedSchema;
 import org.everit.json.schema.ConstSchema;
+import org.everit.json.schema.EmptySchema;
 import org.everit.json.schema.EnumSchema;
 import org.everit.json.schema.NullSchema;
 import org.everit.json.schema.NumberSchema;
@@ -523,7 +524,7 @@ public class JsonSchemaDataTest {
 
   @Test
   public void testToConnectVariant() {
-    ObjectSchema schema = ObjectSchema.builder()
+    EmptySchema schema = EmptySchema.builder()
         .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
         .build();
     ObjectNode jsonValue = JsonNodeFactory.instance.objectNode();
