@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
 
@@ -647,12 +648,13 @@ class VariantUtil {
       checkIndex(start + length - 1, value.limit());
       if (value.hasArray()) {
         // If the buffer is backed by an array, we can use the array directly.
-        return new String(value.array(), value.arrayOffset() + start, length);
+        return new String(value.array(),
+            value.arrayOffset() + start, length, StandardCharsets.UTF_8);
       } else {
         // If the buffer is not backed by an array, we need to copy the bytes into a new array.
         byte[] valueArray = new byte[length];
         slice(value, start).get(valueArray);
-        return new String(valueArray);
+        return new String(valueArray, StandardCharsets.UTF_8);
       }
     }
     throw unexpectedType(Variant.Type.STRING, value);
@@ -820,12 +822,13 @@ class VariantUtil {
     if (metadata.hasArray() && !metadata.isReadOnly()) {
       return new String(metadata.array(),
           metadata.arrayOffset() + dataPos + offset,
-          nextOffset - offset);
+          nextOffset - offset,
+          StandardCharsets.UTF_8);
     } else {
       // ByteBuffer does not have an array, so we need to use the `get` method to read the bytes.
       byte[] metadataArray = new byte[nextOffset - offset];
       slice(metadata, dataPos + offset).get(metadataArray);
-      return new String(metadataArray);
+      return new String(metadataArray, StandardCharsets.UTF_8);
     }
   }
 
@@ -856,13 +859,14 @@ class VariantUtil {
             new String(
                 metadata.array(),
                 metadata.arrayOffset() + pos + stringStart + offset,
-                nextOffset - offset),
+                nextOffset - offset,
+                StandardCharsets.UTF_8),
             id);
       } else {
         // ByteBuffer does not have an array, so we need to use the `get` method to read the bytes.
         byte[] metadataArray = new byte[nextOffset - offset];
         slice(metadata, stringStart + offset).get(metadataArray);
-        result.put(new String(metadataArray), id);
+        result.put(new String(metadataArray, StandardCharsets.UTF_8), id);
       }
       offset = nextOffset;
     }

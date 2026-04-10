@@ -23,6 +23,7 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -679,6 +680,26 @@ public class VariantBuilder {
     @Override
     public int compareTo(FieldEntry other) {
       return key.compareTo(other.key);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) {
+        return true;
+      }
+      if (!(o instanceof FieldEntry)) {
+        return false;
+      }
+      FieldEntry that = (FieldEntry) o;
+      return id == that.id
+          && offset == that.offset
+          && valueSize == that.valueSize
+          && Objects.equals(key, that.key);
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(key, id, offset, valueSize);
     }
   }
 
