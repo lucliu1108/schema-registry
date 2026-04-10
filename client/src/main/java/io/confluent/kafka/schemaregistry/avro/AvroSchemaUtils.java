@@ -171,6 +171,7 @@ public class AvroSchemaUtils {
   }
 
   public static void addLogicalTypeConversion(GenericData avroData) {
+    avroData.addLogicalTypeConversion(new VariantConversion());
     avroData.addLogicalTypeConversion(new Conversions.BigDecimalConversion());
     avroData.addLogicalTypeConversion(new Conversions.DecimalConversion());
     avroData.addLogicalTypeConversion(new Conversions.DurationConversion());
