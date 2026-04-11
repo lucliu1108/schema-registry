@@ -701,6 +701,26 @@ public class JsonSchemaDataTest {
   }
 
   @Test
+  public void testToConnectVariantNull() {
+    org.everit.json.schema.EmptySchema schema = org.everit.json.schema.EmptySchema.builder()
+        .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
+        .build();
+    JsonNode jsonValue = JsonNodeFactory.instance.nullNode();
+
+    // JSON null is treated as a missing value, not a variant-encoded null.
+    // The schema must be optional for null to be accepted.
+    Schema connectSchema = jsonSchemaData.toConnectSchema(schema);
+    Schema optionalSchema = SchemaBuilder.struct()
+        .name(connectSchema.name())
+        .field("metadata", Schema.OPTIONAL_BYTES_SCHEMA)
+        .field("value", Schema.OPTIONAL_BYTES_SCHEMA)
+        .optional()
+        .build();
+    Object connectValue = jsonSchemaData.toConnectData(optionalSchema, jsonValue);
+    assertNull(connectValue);
+  }
+
+  @Test
   public void testFromConnectMapWithStringKey() {
     Schema connectSchema = SchemaBuilder.map(Schema.STRING_SCHEMA, Schema.INT32_SCHEMA);
     NumberSchema numberSchema = NumberSchema.builder()
