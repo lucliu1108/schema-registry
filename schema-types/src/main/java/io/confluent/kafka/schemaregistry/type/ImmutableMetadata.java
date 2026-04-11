@@ -27,7 +27,7 @@ public class ImmutableMetadata implements Metadata {
   private final ByteBuffer metadataBuffer;
 
   public ImmutableMetadata(ByteBuffer metadata) {
-    this.dictionary = VariantUtil.getMetadataMap(metadata);
+    this.dictionary = VariantFormat.getMetadataMap(metadata);
     this.metadataBuffer = metadata;
   }
 

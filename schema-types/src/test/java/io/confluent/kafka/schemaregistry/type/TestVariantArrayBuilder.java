@@ -29,8 +29,8 @@ public class TestVariantArrayBuilder {
     VariantBuilder b = new VariantBuilder();
     VariantArrayBuilder a = b.startArray();
     b.endArray();
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.ARRAY, Variant.Type.ARRAY);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(0, v.numArrayElements());
     });
   }
@@ -43,11 +43,11 @@ public class TestVariantArrayBuilder {
       a.appendInt(i);
     }
     b.endArray();
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.ARRAY, Variant.Type.ARRAY);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(511, v.numArrayElements());
       for (int i = 0; i < 511; i++) {
-        VariantTestUtil.checkType(v.getElementAtIndex(i), VariantUtil.PRIMITIVE, Variant.Type.INT);
+        VariantTestUtils.checkType(v.getElementAtIndex(i), VariantFormat.PRIMITIVE, Variant.Type.INT);
         Assert.assertEquals(i, v.getElementAtIndex(i).getInt());
       }
     });
@@ -78,29 +78,29 @@ public class TestVariantArrayBuilder {
     }
     b.endArray();
 
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.ARRAY, Variant.Type.ARRAY);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(4, v.numArrayElements());
-      VariantTestUtil.checkType(v.getElementAtIndex(0), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getElementAtIndex(0), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getElementAtIndex(0).getBoolean());
 
-      VariantTestUtil.checkType(v.getElementAtIndex(1), VariantUtil.OBJECT, Variant.Type.OBJECT);
+      VariantTestUtils.checkType(v.getElementAtIndex(1), VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(1, v.getElementAtIndex(1).numObjectElements());
-      VariantTestUtil.checkType(
-          v.getElementAtIndex(1).getFieldByKey("key"), VariantUtil.PRIMITIVE, Variant.Type.INT);
+      VariantTestUtils.checkType(
+          v.getElementAtIndex(1).getFieldByKey("key"), VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(321, v.getElementAtIndex(1).getFieldByKey("key").getInt());
 
-      VariantTestUtil.checkType(v.getElementAtIndex(2), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+      VariantTestUtils.checkType(v.getElementAtIndex(2), VariantFormat.PRIMITIVE, Variant.Type.LONG);
       Assert.assertEquals(1234567890, v.getElementAtIndex(2).getLong());
 
-      VariantTestUtil.checkType(v.getElementAtIndex(3), VariantUtil.ARRAY, Variant.Type.ARRAY);
+      VariantTestUtils.checkType(v.getElementAtIndex(3), VariantFormat.ARRAY, Variant.Type.ARRAY);
       Variant nested = v.getElementAtIndex(3);
       Assert.assertEquals(3, nested.numArrayElements());
-      VariantTestUtil.checkType(nested.getElementAtIndex(0), VariantUtil.ARRAY, Variant.Type.ARRAY);
+      VariantTestUtils.checkType(nested.getElementAtIndex(0), VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(0, nested.getElementAtIndex(0).numArrayElements());
-      VariantTestUtil.checkType(nested.getElementAtIndex(1), VariantUtil.SHORT_STR, Variant.Type.STRING);
+      VariantTestUtils.checkType(nested.getElementAtIndex(1), VariantFormat.SHORT_STR, Variant.Type.STRING);
       Assert.assertEquals("variant", nested.getElementAtIndex(1).getString());
-      VariantTestUtil.checkType(nested.getElementAtIndex(2), VariantUtil.OBJECT, Variant.Type.OBJECT);
+      VariantTestUtils.checkType(nested.getElementAtIndex(2), VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(0, nested.getElementAtIndex(2).numObjectElements());
     });
   }
@@ -119,15 +119,15 @@ public class TestVariantArrayBuilder {
     buildNested(1000, b.startArray());
     b.endArray();
 
-    VariantTestUtil.testVariant(b.build(), v -> {
+    VariantTestUtils.testVariant(b.build(), v -> {
       Variant curr = v;
       for (int i = 1000; i >= 0; i--) {
-        VariantTestUtil.checkType(curr, VariantUtil.ARRAY, Variant.Type.ARRAY);
+        VariantTestUtils.checkType(curr, VariantFormat.ARRAY, Variant.Type.ARRAY);
         if (i == 0) {
           Assert.assertEquals(0, curr.numArrayElements());
         } else {
           Assert.assertEquals(2, curr.numArrayElements());
-          VariantTestUtil.checkType(curr.getElementAtIndex(0), VariantUtil.SHORT_STR, Variant.Type.STRING);
+          VariantTestUtils.checkType(curr.getElementAtIndex(0), VariantFormat.SHORT_STR, Variant.Type.STRING);
           Assert.assertEquals("str" + i, curr.getElementAtIndex(0).getString());
           curr = curr.getElementAtIndex(1);
         }
@@ -143,14 +143,14 @@ public class TestVariantArrayBuilder {
     arrBuilder.appendLong(1234567890);
     b.endArray();
 
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.ARRAY, Variant.Type.ARRAY);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(3, v.numArrayElements());
-      VariantTestUtil.checkType(v.getElementAtIndex(0), VariantUtil.PRIMITIVE, Variant.Type.STRING);
+      VariantTestUtils.checkType(v.getElementAtIndex(0), VariantFormat.PRIMITIVE, Variant.Type.STRING);
       Assert.assertEquals(randomString, v.getElementAtIndex(0).getString());
-      VariantTestUtil.checkType(v.getElementAtIndex(1), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getElementAtIndex(1), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getElementAtIndex(1).getBoolean());
-      VariantTestUtil.checkType(v.getElementAtIndex(2), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+      VariantTestUtils.checkType(v.getElementAtIndex(2), VariantFormat.PRIMITIVE, Variant.Type.LONG);
       Assert.assertEquals(1234567890, v.getElementAtIndex(2).getLong());
     });
   }
@@ -158,19 +158,19 @@ public class TestVariantArrayBuilder {
   @Test
   public void testArrayTwoByteOffsetBuilder() {
     // a string larger than 255 bytes to push the value offset size above 1 byte
-    testArrayOffsetSizeBuilder(VariantTestUtil.randomString(300));
+    testArrayOffsetSizeBuilder(VariantTestUtils.randomString(300));
   }
 
   @Test
   public void testArrayThreeByteOffsetBuilder() {
     // a string larger than 65535 bytes to push the value offset size above 2 bytes
-    testArrayOffsetSizeBuilder(VariantTestUtil.randomString(70_000));
+    testArrayOffsetSizeBuilder(VariantTestUtils.randomString(70_000));
   }
 
   @Test
   public void testArrayFourByteOffsetBuilder() {
     // a string larger than 16777215 bytes to push the value offset size above 3 bytes
-    testArrayOffsetSizeBuilder(VariantTestUtil.randomString(16_800_000));
+    testArrayOffsetSizeBuilder(VariantTestUtils.randomString(16_800_000));
   }
 
   @Test

@@ -45,7 +45,7 @@ import java.util.HashMap;
  * with `offset[i + 1] - offset[i]`.
  * - UTF-8 string data.
  */
-class VariantUtil {
+class VariantFormat {
   static final int BASIC_TYPE_BITS = 2;
   static final int BASIC_TYPE_MASK = 0b00000011;
   static final int PRIMITIVE_TYPE_MASK = 0b00111111;
@@ -886,7 +886,7 @@ class VariantUtil {
         int stringSize = (value.get(pos) >> BASIC_TYPE_BITS) & PRIMITIVE_TYPE_MASK;
         return 1 + stringSize;
       case OBJECT: {
-        ObjectInfo info = VariantUtil.getObjectInfo(slice(value, pos));
+        ObjectInfo info = VariantFormat.getObjectInfo(slice(value, pos));
         return info.dataStartOffset
             + readUnsigned(
                 value,
@@ -894,7 +894,7 @@ class VariantUtil {
                 info.offsetSize);
       }
       case ARRAY: {
-        ArrayInfo info = VariantUtil.getArrayInfo(slice(value, pos));
+        ArrayInfo info = VariantFormat.getArrayInfo(slice(value, pos));
         return info.dataStartOffset
             + readUnsigned(
                 value,

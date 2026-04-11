@@ -31,8 +31,8 @@ public class TestVariantObjectBuilder {
     VariantBuilder b = new VariantBuilder();
     b.startObject();
     b.endObject();
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(0, v.numObjectElements());
     });
   }
@@ -46,11 +46,11 @@ public class TestVariantObjectBuilder {
       o.appendLong(i);
     }
     b.endObject();
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(1234, v.numObjectElements());
       for (int i = 0; i < 1234; i++) {
-        VariantTestUtil.checkType(v.getFieldByKey("a" + i), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+        VariantTestUtils.checkType(v.getFieldByKey("a" + i), VariantFormat.PRIMITIVE, Variant.Type.LONG);
         Assert.assertEquals(i, v.getFieldByKey("a" + i).getLong());
       }
     });
@@ -87,29 +87,29 @@ public class TestVariantObjectBuilder {
     }
     b.endObject();
 
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(4, v.numObjectElements());
-      VariantTestUtil.checkType(v.getFieldByKey("outer 1"), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getFieldByKey("outer 1"), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getFieldByKey("outer 1").getBoolean());
-      VariantTestUtil.checkType(v.getFieldByKey("outer 2"), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+      VariantTestUtils.checkType(v.getFieldByKey("outer 2"), VariantFormat.PRIMITIVE, Variant.Type.LONG);
       Assert.assertEquals(1234567890, v.getFieldByKey("outer 2").getLong());
-      VariantTestUtil.checkType(v.getFieldByKey("outer 3"), VariantUtil.OBJECT, Variant.Type.OBJECT);
+      VariantTestUtils.checkType(v.getFieldByKey("outer 3"), VariantFormat.OBJECT, Variant.Type.OBJECT);
 
       Variant nested = v.getFieldByKey("outer 3");
       Assert.assertEquals(3, nested.numObjectElements());
-      VariantTestUtil.checkType(nested.getFieldByKey("nested 1"), VariantUtil.OBJECT, Variant.Type.OBJECT);
+      VariantTestUtils.checkType(nested.getFieldByKey("nested 1"), VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(0, nested.getFieldByKey("nested 1").numObjectElements());
-      VariantTestUtil.checkType(nested.getFieldByKey("nested 2"), VariantUtil.SHORT_STR, Variant.Type.STRING);
+      VariantTestUtils.checkType(nested.getFieldByKey("nested 2"), VariantFormat.SHORT_STR, Variant.Type.STRING);
       Assert.assertEquals("variant", nested.getFieldByKey("nested 2").getString());
-      VariantTestUtil.checkType(nested.getFieldByKey("nested 3"), VariantUtil.ARRAY, Variant.Type.ARRAY);
+      VariantTestUtils.checkType(nested.getFieldByKey("nested 3"), VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(1, nested.getFieldByKey("nested 3").numArrayElements());
-      VariantTestUtil.checkType(
-          nested.getFieldByKey("nested 3").getElementAtIndex(0), VariantUtil.PRIMITIVE, Variant.Type.INT);
+      VariantTestUtils.checkType(
+          nested.getFieldByKey("nested 3").getElementAtIndex(0), VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(
           321, nested.getFieldByKey("nested 3").getElementAtIndex(0).getInt());
 
-      VariantTestUtil.checkType(v.getFieldByKey("outer 4"), VariantUtil.ARRAY, Variant.Type.ARRAY);
+      VariantTestUtils.checkType(v.getFieldByKey("outer 4"), VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(0, v.getFieldByKey("outer 4").numArrayElements());
     });
   }
@@ -128,14 +128,14 @@ public class TestVariantObjectBuilder {
     objBuilder.endArray();
     b.endObject();
 
-    VariantTestUtil.testVariant(b.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(b.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(2, v.numObjectElements());
       Assert.assertEquals(
           ByteBuffer.wrap(new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}),
           v.getFieldByKey("as_binary").getBinary());
       Variant nestedArray = v.getFieldByKey("in_array");
-      VariantTestUtil.checkType(nestedArray, VariantUtil.ARRAY, Variant.Type.ARRAY);
+      VariantTestUtils.checkType(nestedArray, VariantFormat.ARRAY, Variant.Type.ARRAY);
       Assert.assertEquals(3, nestedArray.numArrayElements());
       Assert.assertEquals(
           ByteBuffer.wrap(new byte[] {}),
@@ -165,16 +165,16 @@ public class TestVariantObjectBuilder {
     buildNested(1000, b.startObject());
     b.endObject();
 
-    VariantTestUtil.testVariant(b.build(), v -> {
+    VariantTestUtils.testVariant(b.build(), v -> {
       Variant curr = v;
       for (int i = 1000; i >= 0; i--) {
-        VariantTestUtil.checkType(curr, VariantUtil.OBJECT, Variant.Type.OBJECT);
+        VariantTestUtils.checkType(curr, VariantFormat.OBJECT, Variant.Type.OBJECT);
         if (i == 0) {
           Assert.assertEquals(0, curr.numObjectElements());
         } else {
           Assert.assertEquals(2, curr.numObjectElements());
-          VariantTestUtil.checkType(
-              curr.getFieldByKey("key" + i), VariantUtil.SHORT_STR, Variant.Type.STRING);
+          VariantTestUtils.checkType(
+              curr.getFieldByKey("key" + i), VariantFormat.SHORT_STR, Variant.Type.STRING);
           Assert.assertEquals("str" + i, curr.getFieldByKey("key" + i).getString());
           curr = curr.getFieldByKey("duplicate");
         }
@@ -194,32 +194,32 @@ public class TestVariantObjectBuilder {
     b.endObject();
 
     Variant v = b.build();
-    VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
     Assert.assertEquals(3, v.numObjectElements());
-    VariantTestUtil.checkType(v.getFieldByKey("key1"), VariantUtil.PRIMITIVE, Variant.Type.STRING);
+    VariantTestUtils.checkType(v.getFieldByKey("key1"), VariantFormat.PRIMITIVE, Variant.Type.STRING);
     Assert.assertEquals(randomString, v.getFieldByKey("key1").getString());
-    VariantTestUtil.checkType(v.getFieldByKey("key2"), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+    VariantTestUtils.checkType(v.getFieldByKey("key2"), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
     Assert.assertTrue(v.getFieldByKey("key2").getBoolean());
-    VariantTestUtil.checkType(v.getFieldByKey("key3"), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+    VariantTestUtils.checkType(v.getFieldByKey("key3"), VariantFormat.PRIMITIVE, Variant.Type.LONG);
     Assert.assertEquals(1234567890, v.getFieldByKey("key3").getLong());
   }
 
   @Test
   public void testObjectTwoByteOffsetBuilder() {
     // a string larger than 255 bytes to push the offset size above 1 byte
-    testObjectOffsetSizeBuilder(VariantTestUtil.randomString(300));
+    testObjectOffsetSizeBuilder(VariantTestUtils.randomString(300));
   }
 
   @Test
   public void testObjectThreeByteOffsetBuilder() {
     // a string larger than 65535 bytes to push the offset size above 2 bytes
-    testObjectOffsetSizeBuilder(VariantTestUtil.randomString(70_000));
+    testObjectOffsetSizeBuilder(VariantTestUtils.randomString(70_000));
   }
 
   @Test
   public void testObjectFourByteOffsetBuilder() {
     // a string larger than 16777215 bytes to push the offset size above 3 bytes
-    testObjectOffsetSizeBuilder(VariantTestUtil.randomString(16_800_000));
+    testObjectOffsetSizeBuilder(VariantTestUtils.randomString(16_800_000));
   }
 
   private void testObjectFieldIdSizeBuilder(int numKeys) {
@@ -232,12 +232,12 @@ public class TestVariantObjectBuilder {
     b.endObject();
 
     Variant v = b.build();
-    VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
     Assert.assertEquals(numKeys, v.numObjectElements());
     // Only check a few keys, to avoid slowing down the test
-    VariantTestUtil.checkType(v.getFieldByKey("k" + 0), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+    VariantTestUtils.checkType(v.getFieldByKey("k" + 0), VariantFormat.PRIMITIVE, Variant.Type.LONG);
     Assert.assertEquals(0, v.getFieldByKey("k" + 0).getLong());
-    VariantTestUtil.checkType(v.getFieldByKey("k" + (numKeys - 1)), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+    VariantTestUtils.checkType(v.getFieldByKey("k" + (numKeys - 1)), VariantFormat.PRIMITIVE, Variant.Type.LONG);
     Assert.assertEquals(numKeys - 1, v.getFieldByKey("k" + (numKeys - 1)).getLong());
   }
 
@@ -271,7 +271,7 @@ public class TestVariantObjectBuilder {
     b.endObject();
     Variant v = b.build();
     Assert.assertEquals(1, v.numObjectElements());
-    VariantTestUtil.checkType(v.getFieldByKey("duplicate"), VariantUtil.PRIMITIVE, Variant.Type.LONG);
+    VariantTestUtils.checkType(v.getFieldByKey("duplicate"), VariantFormat.PRIMITIVE, Variant.Type.LONG);
     Assert.assertEquals(1, v.getFieldByKey("duplicate").getLong());
   }
 
@@ -290,13 +290,13 @@ public class TestVariantObjectBuilder {
     b.endObject();
     Variant v = b.build();
     Assert.assertEquals(4, v.numObjectElements());
-    VariantTestUtil.checkType(v.getFieldByKey("0"), VariantUtil.SHORT_STR, Variant.Type.STRING);
+    VariantTestUtils.checkType(v.getFieldByKey("0"), VariantFormat.SHORT_STR, Variant.Type.STRING);
     Assert.assertEquals("", v.getFieldByKey("0").getString());
-    VariantTestUtil.checkType(v.getFieldByKey("1"), VariantUtil.SHORT_STR, Variant.Type.STRING);
+    VariantTestUtils.checkType(v.getFieldByKey("1"), VariantFormat.SHORT_STR, Variant.Type.STRING);
     Assert.assertEquals("1", v.getFieldByKey("1").getString());
-    VariantTestUtil.checkType(v.getFieldByKey("2"), VariantUtil.SHORT_STR, Variant.Type.STRING);
+    VariantTestUtils.checkType(v.getFieldByKey("2"), VariantFormat.SHORT_STR, Variant.Type.STRING);
     Assert.assertEquals("22", v.getFieldByKey("2").getString());
-    VariantTestUtil.checkType(v.getFieldByKey("3"), VariantUtil.SHORT_STR, Variant.Type.STRING);
+    VariantTestUtils.checkType(v.getFieldByKey("3"), VariantFormat.SHORT_STR, Variant.Type.STRING);
     Assert.assertEquals("333", v.getFieldByKey("3").getString());
   }
 

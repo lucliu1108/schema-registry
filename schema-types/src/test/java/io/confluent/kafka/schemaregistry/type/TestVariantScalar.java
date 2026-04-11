@@ -34,16 +34,16 @@ public class TestVariantScalar {
   @Test
   public void testNull() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(0)}), VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> VariantTestUtil.checkType(v, VariantUtil.NULL, Variant.Type.NULL));
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(0)}), VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> VariantTestUtils.checkType(v, VariantFormat.NULL, Variant.Type.NULL));
   }
 
   @Test
   public void testTrue() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(1)}), VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(1)}), VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getBoolean());
     });
   }
@@ -51,9 +51,9 @@ public class TestVariantScalar {
   @Test
   public void testFalse() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(2)}), VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(2)}), VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertFalse(v.getBoolean());
     });
   }
@@ -62,7 +62,7 @@ public class TestVariantScalar {
   public void testLong() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(6),
+          VariantTestUtils.primitiveHeader(6),
           (byte) 0xB1,
           0x1C,
           0x6C,
@@ -72,9 +72,9 @@ public class TestVariantScalar {
           0x22,
           0x11
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.LONG);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.LONG);
       Assert.assertEquals(1234567890987654321L, v.getLong());
     });
   }
@@ -83,7 +83,7 @@ public class TestVariantScalar {
   public void testNegativeLong() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(6),
+          VariantTestUtils.primitiveHeader(6),
           (byte) 0xFF,
           (byte) 0xFF,
           (byte) 0xFF,
@@ -93,9 +93,9 @@ public class TestVariantScalar {
           (byte) 0xFF,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.LONG);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.LONG);
       Assert.assertEquals(-1L, v.getLong());
     });
   }
@@ -103,10 +103,10 @@ public class TestVariantScalar {
   @Test
   public void testInt() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(5), (byte) 0xD2, 0x02, (byte) 0x96, 0x49}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.INT);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(5), (byte) 0xD2, 0x02, (byte) 0x96, 0x49}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(1234567890, v.getInt());
     });
   }
@@ -115,11 +115,11 @@ public class TestVariantScalar {
   public void testNegativeInt() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(5), (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
+          VariantTestUtils.primitiveHeader(5), (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.INT);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(-1, v.getInt());
     });
   }
@@ -127,10 +127,10 @@ public class TestVariantScalar {
   @Test
   public void testShort() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(4), (byte) 0xD2, 0x04}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.SHORT);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(4), (byte) 0xD2, 0x04}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.SHORT);
       Assert.assertEquals((short) 1234, v.getShort());
     });
   }
@@ -138,10 +138,10 @@ public class TestVariantScalar {
   @Test
   public void testNegativeShort() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(4), (byte) 0xFF, (byte) 0xFF}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.SHORT);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(4), (byte) 0xFF, (byte) 0xFF}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.SHORT);
       Assert.assertEquals((short) -1, v.getShort());
     });
   }
@@ -149,9 +149,9 @@ public class TestVariantScalar {
   @Test
   public void testByte() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(3), 34}), VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BYTE);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(3), 34}), VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BYTE);
       Assert.assertEquals((byte) 34, v.getByte());
     });
   }
@@ -159,10 +159,10 @@ public class TestVariantScalar {
   @Test
   public void testNegativeByte() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(3), (byte) 0xFF}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BYTE);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(3), (byte) 0xFF}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BYTE);
       Assert.assertEquals((byte) -1, v.getByte());
     });
   }
@@ -170,10 +170,10 @@ public class TestVariantScalar {
   @Test
   public void testFloat() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(14), (byte) 0xD2, 0x02, (byte) 0x96, 0x49}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.FLOAT);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(14), (byte) 0xD2, 0x02, (byte) 0x96, 0x49}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.FLOAT);
       Assert.assertEquals(Float.intBitsToFloat(1234567890), v.getFloat(), 0);
     });
   }
@@ -181,10 +181,10 @@ public class TestVariantScalar {
   @Test
   public void testNegativeFloat() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(14), 0x00, 0x00, 0x00, (byte) 0x80}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.FLOAT);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(14), 0x00, 0x00, 0x00, (byte) 0x80}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.FLOAT);
       Assert.assertEquals(-0.0F, v.getFloat(), 0);
     });
   }
@@ -193,7 +193,7 @@ public class TestVariantScalar {
   public void testDouble() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(7),
+          VariantTestUtils.primitiveHeader(7),
           (byte) 0xB1,
           0x1C,
           0x6C,
@@ -203,9 +203,9 @@ public class TestVariantScalar {
           0x22,
           0x11
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DOUBLE);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DOUBLE);
       Assert.assertEquals(Double.longBitsToDouble(1234567890987654321L), v.getDouble(), 0);
     });
   }
@@ -214,11 +214,11 @@ public class TestVariantScalar {
   public void testNegativeDouble() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(7), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, (byte) 0x80
+          VariantTestUtils.primitiveHeader(7), 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, (byte) 0x80
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DOUBLE);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DOUBLE);
       Assert.assertEquals(-0.0D, v.getDouble(), 0);
     });
   }
@@ -227,10 +227,10 @@ public class TestVariantScalar {
   public void testDecimal4() {
     Variant value = new Variant(
         ByteBuffer.wrap(
-            new byte[] {VariantTestUtil.primitiveHeader(8), 0x04, (byte) 0xD2, 0x02, (byte) 0x96, 0x49}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL4);
+            new byte[] {VariantTestUtils.primitiveHeader(8), 0x04, (byte) 0xD2, 0x02, (byte) 0x96, 0x49}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL4);
       Assert.assertEquals(new BigDecimal("123456.7890"), v.getDecimal());
     });
   }
@@ -239,11 +239,11 @@ public class TestVariantScalar {
   public void testNegativeDecimal4() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(8), 0x04, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
+          VariantTestUtils.primitiveHeader(8), 0x04, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL4);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL4);
       Assert.assertEquals(new BigDecimal("-0.0001"), v.getDecimal());
     });
   }
@@ -252,7 +252,7 @@ public class TestVariantScalar {
   public void testDecimal8() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(9),
+          VariantTestUtils.primitiveHeader(9),
           0x09,
           (byte) 0xB1,
           0x1C,
@@ -263,9 +263,9 @@ public class TestVariantScalar {
           0x22,
           0x11
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL8);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL8);
       Assert.assertEquals(new BigDecimal("1234567890.987654321"), v.getDecimal());
     });
   }
@@ -274,7 +274,7 @@ public class TestVariantScalar {
   public void testNegativeDecimal8() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(9),
+          VariantTestUtils.primitiveHeader(9),
           0x09,
           (byte) 0xFF,
           (byte) 0xFF,
@@ -285,9 +285,9 @@ public class TestVariantScalar {
           (byte) 0xFF,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL8);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL8);
       Assert.assertEquals(new BigDecimal("-0.000000001"), v.getDecimal());
     });
   }
@@ -296,7 +296,7 @@ public class TestVariantScalar {
   public void testDecimal16() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(10),
+          VariantTestUtils.primitiveHeader(10),
           0x09,
           0x15,
           0x71,
@@ -315,9 +315,9 @@ public class TestVariantScalar {
           0x00,
           0x00
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL16);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL16);
       Assert.assertEquals(new BigDecimal("9876543210.123456789"), v.getDecimal());
     });
   }
@@ -326,7 +326,7 @@ public class TestVariantScalar {
   public void testNegativeDecimal16() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(10),
+          VariantTestUtils.primitiveHeader(10),
           0x09,
           (byte) 0xEB,
           (byte) 0x8E,
@@ -345,9 +345,9 @@ public class TestVariantScalar {
           (byte) 0xFF,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL16);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL16);
       Assert.assertEquals(new BigDecimal("-9876543210.123456789"), v.getDecimal());
     });
   }
@@ -355,10 +355,10 @@ public class TestVariantScalar {
   @Test
   public void testDate() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(11), (byte) 0xE3, 0x4E, 0x00, 0x00}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DATE);
+        ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(11), (byte) 0xE3, 0x4E, 0x00, 0x00}),
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DATE);
       Assert.assertEquals(LocalDate.parse("2025-04-17"), LocalDate.ofEpochDay(v.getInt()));
     });
   }
@@ -367,11 +367,11 @@ public class TestVariantScalar {
   public void testNegativeDate() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(11), (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
+          VariantTestUtils.primitiveHeader(11), (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DATE);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DATE);
       Assert.assertEquals(LocalDate.parse("1969-12-31"), LocalDate.ofEpochDay(v.getInt()));
     });
   }
@@ -380,7 +380,7 @@ public class TestVariantScalar {
   public void testTimestampTz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(12),
+          VariantTestUtils.primitiveHeader(12),
           (byte) 0xC0,
           0x77,
           (byte) 0xA1,
@@ -390,9 +390,9 @@ public class TestVariantScalar {
           0x06,
           0x00
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_TZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_TZ);
       Assert.assertEquals(
           Instant.parse("2025-04-17T08:09:10.123456Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.MICROS));
     });
@@ -402,7 +402,7 @@ public class TestVariantScalar {
   public void testNegativeTimestampTz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(12),
+          VariantTestUtils.primitiveHeader(12),
           (byte) 0xFF,
           (byte) 0xFF,
           (byte) 0xFF,
@@ -412,9 +412,9 @@ public class TestVariantScalar {
           (byte) 0xFF,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_TZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_TZ);
       Assert.assertEquals(
           Instant.parse("1969-12-31T23:59:59.999999Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.MICROS));
     });
@@ -424,7 +424,7 @@ public class TestVariantScalar {
   public void testTimestampNtz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(13),
+          VariantTestUtils.primitiveHeader(13),
           (byte) 0xC0,
           0x77,
           (byte) 0xA1,
@@ -434,9 +434,9 @@ public class TestVariantScalar {
           0x06,
           0x00
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NTZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NTZ);
       Assert.assertEquals(
           Instant.parse("2025-04-17T08:09:10.123456Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.MICROS));
     });
@@ -446,7 +446,7 @@ public class TestVariantScalar {
   public void testNegativeTimestampNtz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(13),
+          VariantTestUtils.primitiveHeader(13),
           (byte) 0xFF,
           (byte) 0xFF,
           (byte) 0xFF,
@@ -456,9 +456,9 @@ public class TestVariantScalar {
           (byte) 0xFF,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NTZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NTZ);
       Assert.assertEquals(
           Instant.parse("1969-12-31T23:59:59.999999Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.MICROS));
     });
@@ -468,11 +468,11 @@ public class TestVariantScalar {
   public void testBinary() {
     Variant value = new Variant(
         ByteBuffer.wrap(
-            new byte[] {VariantTestUtil.primitiveHeader(15), 0x05, 0x00, 0x00, 0x00, 'a', 'b', 'c', 'd', 'e'
+            new byte[] {VariantTestUtils.primitiveHeader(15), 0x05, 0x00, 0x00, 0x00, 'a', 'b', 'c', 'd', 'e'
             }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BINARY);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BINARY);
       Assert.assertEquals(ByteBuffer.wrap(new byte[] {'a', 'b', 'c', 'd', 'e'}), v.getBinary());
     });
   }
@@ -481,11 +481,11 @@ public class TestVariantScalar {
   public void testString() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(16), 0x07, 0x00, 0x00, 0x00, 'v', 'a', 'r', 'i', 'a', 'n', 't'
+          VariantTestUtils.primitiveHeader(16), 0x07, 0x00, 0x00, 0x00, 'v', 'a', 'r', 'i', 'a', 'n', 't'
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.STRING);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.STRING);
       Assert.assertEquals("variant", v.getString());
     });
   }
@@ -494,9 +494,9 @@ public class TestVariantScalar {
   public void testShortString() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {0b11101, 'v', 'a', 'r', 'i', 'a', 'n', 't'}),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.SHORT_STR, Variant.Type.STRING);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.SHORT_STR, Variant.Type.STRING);
       Assert.assertEquals("variant", v.getString());
     });
   }
@@ -505,7 +505,7 @@ public class TestVariantScalar {
   public void testTime() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(17),
+          VariantTestUtils.primitiveHeader(17),
           (byte) 0x00,
           (byte) 0x00,
           (byte) 0xCA,
@@ -515,9 +515,9 @@ public class TestVariantScalar {
           (byte) 0x00,
           (byte) 0x00
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIME);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIME);
       Assert.assertEquals(LocalTime.parse("23:59:59.123456"), LocalTime.ofNanoOfDay(v.getLong() * 1_000));
     });
   }
@@ -526,7 +526,7 @@ public class TestVariantScalar {
   public void testTimestampNanosTz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(18),
+          VariantTestUtils.primitiveHeader(18),
           0x15,
           (byte) 0xC9,
           (byte) 0xBB,
@@ -536,9 +536,9 @@ public class TestVariantScalar {
           0x37,
           0x18
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_TZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_TZ);
       Assert.assertEquals(
           Instant.parse("2025-04-17T08:09:10.123456789Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.NANOS));
     });
@@ -548,7 +548,7 @@ public class TestVariantScalar {
   public void testNegativeTimestampNanosTz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(18),
+          VariantTestUtils.primitiveHeader(18),
           (byte) 0xFF,
           (byte) 0xFF,
           (byte) 0xFF,
@@ -558,9 +558,9 @@ public class TestVariantScalar {
           (byte) 0xFF,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_TZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_TZ);
       Assert.assertEquals(
           Instant.parse("1969-12-31T23:59:59.999999999Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.NANOS));
     });
@@ -570,7 +570,7 @@ public class TestVariantScalar {
   public void testTimestampNanosNtz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(19),
+          VariantTestUtils.primitiveHeader(19),
           0x15,
           (byte) 0xC9,
           (byte) 0xBB,
@@ -580,9 +580,9 @@ public class TestVariantScalar {
           0x37,
           0x18
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_NTZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_NTZ);
       Assert.assertEquals(
           Instant.parse("2025-04-17T08:09:10.123456789Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.NANOS));
     });
@@ -592,7 +592,7 @@ public class TestVariantScalar {
   public void testNegativeTimestampNanosNtz() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(19),
+          VariantTestUtils.primitiveHeader(19),
           (byte) 0xFF,
           (byte) 0xFF,
           (byte) 0xFF,
@@ -602,9 +602,9 @@ public class TestVariantScalar {
           (byte) 0xFF,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_NTZ);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_NTZ);
       Assert.assertEquals(
           Instant.parse("1969-12-31T23:59:59.999999999Z"), Instant.EPOCH.plus(v.getLong(), ChronoUnit.NANOS));
     });
@@ -614,7 +614,7 @@ public class TestVariantScalar {
   public void testUUID() {
     Variant value = new Variant(
         ByteBuffer.wrap(new byte[] {
-          VariantTestUtil.primitiveHeader(20),
+          VariantTestUtils.primitiveHeader(20),
           0x00,
           0x11,
           0x22,
@@ -632,9 +632,9 @@ public class TestVariantScalar {
           (byte) 0xEE,
           (byte) 0xFF
         }),
-        VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.UUID);
+        VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.UUID);
       Assert.assertEquals(UUID.fromString("00112233-4455-6677-8899-aabbccddeeff"), v.getUUID());
     });
   }
@@ -642,7 +642,7 @@ public class TestVariantScalar {
   @Test
   public void testInvalidType() {
     try {
-      Variant value = new Variant(ByteBuffer.wrap(new byte[] {(byte) 0xFC}), VariantTestUtil.EMPTY_METADATA);
+      Variant value = new Variant(ByteBuffer.wrap(new byte[] {(byte) 0xFC}), VariantTestUtils.EMPTY_METADATA);
       value.getBoolean();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -655,7 +655,7 @@ public class TestVariantScalar {
   public void testInvalidBoolean() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getBoolean();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -667,7 +667,7 @@ public class TestVariantScalar {
   public void testInvalidLong() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(16)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(16)}), VariantTestUtils.EMPTY_METADATA);
       value.getLong();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -681,7 +681,7 @@ public class TestVariantScalar {
   public void testInvalidInt() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getInt();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -693,7 +693,7 @@ public class TestVariantScalar {
   public void testInvalidShort() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getShort();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -705,7 +705,7 @@ public class TestVariantScalar {
   public void testInvalidByte() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getByte();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -717,7 +717,7 @@ public class TestVariantScalar {
   public void testInvalidFloat() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getFloat();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -729,7 +729,7 @@ public class TestVariantScalar {
   public void testInvalidDouble() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getDouble();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -741,8 +741,8 @@ public class TestVariantScalar {
   public void testInvalidDecimal() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6), 0}),
-          VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6), 0}),
+          VariantTestUtils.EMPTY_METADATA);
       value.getDecimal();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -754,7 +754,7 @@ public class TestVariantScalar {
   public void testInvalidUUID() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getUUID();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -766,7 +766,7 @@ public class TestVariantScalar {
   public void testInvalidString() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getString();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {
@@ -778,7 +778,7 @@ public class TestVariantScalar {
   public void testInvalidBinary() {
     try {
       Variant value = new Variant(
-          ByteBuffer.wrap(new byte[] {VariantTestUtil.primitiveHeader(6)}), VariantTestUtil.EMPTY_METADATA);
+          ByteBuffer.wrap(new byte[] {VariantTestUtils.primitiveHeader(6)}), VariantTestUtils.EMPTY_METADATA);
       value.getBinary();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {

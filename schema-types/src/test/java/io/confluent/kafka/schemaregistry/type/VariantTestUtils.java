@@ -26,8 +26,8 @@ import org.junit.Assert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class VariantTestUtil {
-  private static final Logger LOG = LoggerFactory.getLogger(VariantTestUtil.class);
+public class VariantTestUtils {
+  private static final Logger LOG = LoggerFactory.getLogger(VariantTestUtils.class);
   private static final String RANDOM_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
   /** Random number generator for generating random strings */
@@ -36,7 +36,7 @@ public class VariantTestUtil {
   static final ByteBuffer EMPTY_METADATA = ByteBuffer.wrap(new byte[] {0b1});
 
   static void checkType(Variant v, int expectedBasicType, Variant.Type expectedType) {
-    Assert.assertEquals(expectedBasicType, v.value.get(v.value.position()) & VariantUtil.BASIC_TYPE_MASK);
+    Assert.assertEquals(expectedBasicType, v.value.get(v.value.position()) & VariantFormat.BASIC_TYPE_MASK);
     Assert.assertEquals(expectedType, v.getType());
   }
 

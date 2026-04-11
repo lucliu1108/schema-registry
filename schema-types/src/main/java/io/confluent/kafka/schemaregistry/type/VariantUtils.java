@@ -33,7 +33,7 @@ import java.util.Map;
 /**
  * Converts between Jackson {@link JsonNode} and {@link Variant} (metadata + value binary pair).
  */
-public class VariantJsonConverter {
+public class VariantUtils {
 
   /**
    * Converts a Jackson JsonNode into a Variant.
@@ -149,7 +149,7 @@ public class VariantJsonConverter {
    * @param node the JSON node to convert
    * @return a Variant containing the encoded metadata and value
    */
-  public static Variant toVariant(JsonNode node) {
+  public static Variant fromJsonNode(JsonNode node) {
     VariantBuilder builder = new VariantBuilder();
     buildValue(builder, node);
     return builder.build();

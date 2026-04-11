@@ -18,7 +18,7 @@ package io.confluent.connect.schema;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.confluent.kafka.schemaregistry.type.Variant;
-import io.confluent.kafka.schemaregistry.type.VariantJsonConverter;
+import io.confluent.kafka.schemaregistry.type.VariantUtils;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
@@ -69,7 +69,7 @@ public class ConnectVariant {
     Variant variant = new Variant(
         (byte[]) value.get(VALUE_FIELD),
         (byte[]) value.get(METADATA_FIELD));
-    return VariantJsonConverter.toJsonNode(variant);
+    return VariantUtils.toJsonNode(variant);
   }
 
   /**
@@ -85,7 +85,7 @@ public class ConnectVariant {
       throw new DataException(
           "Requested conversion of Variant object but the schema does not match.");
     }
-    Variant variant = VariantJsonConverter.toVariant(value);
+    Variant variant = VariantUtils.fromJsonNode(value);
     Struct struct = new Struct(schema);
     struct.put(METADATA_FIELD, toBytes(variant.getMetadataBuffer()));
     struct.put(VALUE_FIELD, toBytes(variant.getValueBuffer()));

@@ -37,7 +37,7 @@ public class TestVariantScalarBuilder {
   public void testNullBuilder() {
     VariantBuilder vb = new VariantBuilder();
     vb.appendNull();
-    VariantTestUtil.testVariant(vb.build(), v -> VariantTestUtil.checkType(v, VariantUtil.NULL, Variant.Type.NULL));
+    VariantTestUtils.testVariant(vb.build(), v -> VariantTestUtils.checkType(v, VariantFormat.NULL, Variant.Type.NULL));
 
     try {
       vb.appendNull();
@@ -52,8 +52,8 @@ public class TestVariantScalarBuilder {
     Arrays.asList(true, false).forEach(b -> {
       VariantBuilder vb = new VariantBuilder();
       vb.appendBoolean(b);
-      VariantTestUtil.testVariant(vb.build(), v -> {
-        VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.testVariant(vb.build(), v -> {
+        VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
         Assert.assertEquals(b, v.getBoolean());
       });
 
@@ -81,8 +81,8 @@ public class TestVariantScalarBuilder {
         .forEach(l -> {
           VariantBuilder vb = new VariantBuilder();
           vb.appendLong(l);
-          VariantTestUtil.testVariant(vb.build(), v -> {
-            VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.LONG);
+          VariantTestUtils.testVariant(vb.build(), v -> {
+            VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.LONG);
             Assert.assertEquals((long) l, v.getLong());
           });
 
@@ -108,8 +108,8 @@ public class TestVariantScalarBuilder {
         .forEach(i -> {
           VariantBuilder vb = new VariantBuilder();
           vb.appendInt(i);
-          VariantTestUtil.testVariant(vb.build(), v -> {
-            VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.INT);
+          VariantTestUtils.testVariant(vb.build(), v -> {
+            VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.INT);
             Assert.assertEquals((int) i, v.getInt());
           });
 
@@ -128,8 +128,8 @@ public class TestVariantScalarBuilder {
         .forEach(s -> {
           VariantBuilder vb = new VariantBuilder();
           vb.appendShort(s);
-          VariantTestUtil.testVariant(vb.build(), v -> {
-            VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.SHORT);
+          VariantTestUtils.testVariant(vb.build(), v -> {
+            VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.SHORT);
             Assert.assertEquals((short) s, v.getShort());
           });
 
@@ -147,8 +147,8 @@ public class TestVariantScalarBuilder {
     Arrays.asList((byte) 0, Byte.MIN_VALUE, Byte.MAX_VALUE).forEach(b -> {
       VariantBuilder vb = new VariantBuilder();
       vb.appendByte(b);
-      VariantTestUtil.testVariant(vb.build(), v -> {
-        VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BYTE);
+      VariantTestUtils.testVariant(vb.build(), v -> {
+        VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BYTE);
         Assert.assertEquals((byte) b, v.getByte());
       });
 
@@ -166,8 +166,8 @@ public class TestVariantScalarBuilder {
     Arrays.asList(Float.MIN_VALUE, 0f, -0f, Float.MAX_VALUE).forEach(f -> {
       VariantBuilder vb = new VariantBuilder();
       vb.appendFloat(f);
-      VariantTestUtil.testVariant(vb.build(), v -> {
-        VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.FLOAT);
+      VariantTestUtils.testVariant(vb.build(), v -> {
+        VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.FLOAT);
         Assert.assertEquals(f, v.getFloat(), 0);
       });
 
@@ -222,8 +222,8 @@ public class TestVariantScalarBuilder {
     Arrays.asList(Double.MIN_VALUE, 0d, -0d, Double.MAX_VALUE).forEach(d -> {
       VariantBuilder vb = new VariantBuilder();
       vb.appendDouble(d);
-      VariantTestUtil.testVariant(vb.build(), v -> {
-        VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DOUBLE);
+      VariantTestUtils.testVariant(vb.build(), v -> {
+        VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DOUBLE);
         Assert.assertEquals(d, v.getDouble(), 0);
       });
 
@@ -242,8 +242,8 @@ public class TestVariantScalarBuilder {
     Arrays.asList(new BigDecimal("123.456"), new BigDecimal("-987.654")).forEach(d -> {
       VariantBuilder vb = new VariantBuilder();
       vb.appendDecimal(d);
-      VariantTestUtil.testVariant(vb.build(), v -> {
-        VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL4);
+      VariantTestUtils.testVariant(vb.build(), v -> {
+        VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL4);
         Assert.assertEquals(d, v.getDecimal());
       });
     });
@@ -253,8 +253,8 @@ public class TestVariantScalarBuilder {
         .forEach(d -> {
           VariantBuilder vb = new VariantBuilder();
           vb.appendDecimal(d);
-          VariantTestUtil.testVariant(vb.build(), v -> {
-            VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL8);
+          VariantTestUtils.testVariant(vb.build(), v -> {
+            VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL8);
             Assert.assertEquals(d, v.getDecimal());
           });
         });
@@ -264,8 +264,8 @@ public class TestVariantScalarBuilder {
         .forEach(d -> {
           VariantBuilder vb = new VariantBuilder();
           vb.appendDecimal(d);
-          VariantTestUtil.testVariant(vb.build(), v -> {
-            VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL16);
+          VariantTestUtils.testVariant(vb.build(), v -> {
+            VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL16);
             Assert.assertEquals(d, v.getDecimal());
           });
         });
@@ -286,32 +286,32 @@ public class TestVariantScalarBuilder {
     BigDecimal smallPrecisionLargeScale = new BigDecimal("1").scaleByPowerOfTen(-20);
     VariantBuilder vb1 = new VariantBuilder();
     vb1.appendDecimal(smallPrecisionLargeScale);
-    VariantTestUtil.testVariant(vb1.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL4);
+    VariantTestUtils.testVariant(vb1.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL4);
       Assert.assertEquals(smallPrecisionLargeScale, v.getDecimal());
     });
 
     BigDecimal mediumPrecisionLargeScale = new BigDecimal("1234567890").scaleByPowerOfTen(-25);
     VariantBuilder vb2 = new VariantBuilder();
     vb2.appendDecimal(mediumPrecisionLargeScale);
-    VariantTestUtil.testVariant(vb2.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL8);
+    VariantTestUtils.testVariant(vb2.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL8);
       Assert.assertEquals(mediumPrecisionLargeScale, v.getDecimal());
     });
 
     BigDecimal maxDecimal4Precision = new BigDecimal("123456789").scaleByPowerOfTen(-18);
     VariantBuilder vb3 = new VariantBuilder();
     vb3.appendDecimal(maxDecimal4Precision);
-    VariantTestUtil.testVariant(vb3.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL4);
+    VariantTestUtils.testVariant(vb3.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL4);
       Assert.assertEquals(maxDecimal4Precision, v.getDecimal());
     });
 
     BigDecimal maxDecimal8Precision = new BigDecimal("123456789012345678").scaleByPowerOfTen(-19);
     VariantBuilder vb4 = new VariantBuilder();
     vb4.appendDecimal(maxDecimal8Precision);
-    VariantTestUtil.testVariant(vb4.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DECIMAL8);
+    VariantTestUtils.testVariant(vb4.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DECIMAL8);
       Assert.assertEquals(maxDecimal8Precision, v.getDecimal());
     });
   }
@@ -321,8 +321,8 @@ public class TestVariantScalarBuilder {
     VariantBuilder vb = new VariantBuilder();
     int days = Math.toIntExact(LocalDate.of(2024, 12, 16).toEpochDay());
     vb.appendDate(days);
-    VariantTestUtil.testVariant(vb.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.DATE);
+    VariantTestUtils.testVariant(vb.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.DATE);
       Assert.assertEquals(days, v.getInt());
     });
 
@@ -338,8 +338,8 @@ public class TestVariantScalarBuilder {
   public void testTimestampTzBuilder() {
     VariantBuilder vb = new VariantBuilder();
     vb.appendTimestampTz(1734373425321456L);
-    VariantTestUtil.testVariant(vb.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_TZ);
+    VariantTestUtils.testVariant(vb.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_TZ);
       Assert.assertEquals(1734373425321456L, v.getLong());
     });
 
@@ -355,8 +355,8 @@ public class TestVariantScalarBuilder {
   public void testTimestampNtzBuilder() {
     VariantBuilder vb = new VariantBuilder();
     vb.appendTimestampNtz(1734373425321456L);
-    VariantTestUtil.testVariant(vb.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NTZ);
+    VariantTestUtils.testVariant(vb.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NTZ);
       Assert.assertEquals(1734373425321456L, v.getLong());
     });
 
@@ -372,8 +372,8 @@ public class TestVariantScalarBuilder {
   public void testBinaryBuilder() {
     VariantBuilder vb = new VariantBuilder();
     vb.appendBinary(ByteBuffer.wrap(new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}));
-    VariantTestUtil.testVariant(vb.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.BINARY);
+    VariantTestUtils.testVariant(vb.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.BINARY);
       Assert.assertEquals(ByteBuffer.wrap(new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}), v.getBinary());
     });
 
@@ -398,25 +398,25 @@ public class TestVariantScalarBuilder {
 
   @Test
   public void testStringBuilder() {
-    IntStream.range(VariantUtil.MAX_SHORT_STR_SIZE - 3, VariantUtil.MAX_SHORT_STR_SIZE + 3)
+    IntStream.range(VariantFormat.MAX_SHORT_STR_SIZE - 3, VariantFormat.MAX_SHORT_STR_SIZE + 3)
         .forEach(len -> {
           VariantBuilder vb = new VariantBuilder();
-          String s = VariantTestUtil.randomString(len);
+          String s = VariantTestUtils.randomString(len);
           vb.appendString(s);
-          VariantTestUtil.testVariant(vb.build(), v -> {
-            if (len <= VariantUtil.MAX_SHORT_STR_SIZE) {
-              VariantTestUtil.checkType(v, VariantUtil.SHORT_STR, Variant.Type.STRING);
+          VariantTestUtils.testVariant(vb.build(), v -> {
+            if (len <= VariantFormat.MAX_SHORT_STR_SIZE) {
+              VariantTestUtils.checkType(v, VariantFormat.SHORT_STR, Variant.Type.STRING);
             } else {
-              VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.STRING);
+              VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.STRING);
             }
             Assert.assertEquals(s, v.getString());
           });
         });
 
     VariantBuilder vb = new VariantBuilder();
-    vb.appendString(VariantTestUtil.randomString(10));
+    vb.appendString(VariantTestUtils.randomString(10));
     try {
-      vb.appendString(VariantTestUtil.randomString(10));
+      vb.appendString(VariantTestUtils.randomString(10));
       Assert.fail("Expected Exception when appending multiple values");
     } catch (Exception e) {
       // expected
@@ -430,8 +430,8 @@ public class TestVariantScalarBuilder {
       VariantBuilder vb = new VariantBuilder();
       long micros = LocalTime.parse(timeStr).toNanoOfDay() / 1_000;
       vb.appendTime(micros);
-      VariantTestUtil.testVariant(vb.build(), v -> {
-        VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIME);
+      VariantTestUtils.testVariant(vb.build(), v -> {
+        VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIME);
         Assert.assertEquals(micros, v.getLong());
       });
     }
@@ -459,8 +459,8 @@ public class TestVariantScalarBuilder {
   public void testTimestampNanosBuilder() {
     VariantBuilder vb = new VariantBuilder();
     vb.appendTimestampNanosTz(1734373425321456987L);
-    VariantTestUtil.testVariant(vb.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_TZ);
+    VariantTestUtils.testVariant(vb.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_TZ);
       Assert.assertEquals(1734373425321456987L, v.getLong());
     });
 
@@ -476,8 +476,8 @@ public class TestVariantScalarBuilder {
   public void testTimestampNanosNtzBuilder() {
     VariantBuilder vb = new VariantBuilder();
     vb.appendTimestampNanosNtz(1734373425321456987L);
-    VariantTestUtil.testVariant(vb.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_NTZ);
+    VariantTestUtils.testVariant(vb.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.TIMESTAMP_NANOS_NTZ);
       Assert.assertEquals(1734373425321456987L, v.getLong());
     });
 
@@ -498,8 +498,8 @@ public class TestVariantScalarBuilder {
     UUID expected = new UUID(msb, lsb);
 
     vb.appendUUID(expected);
-    VariantTestUtil.testVariant(vb.build(), v -> {
-      VariantTestUtil.checkType(v, VariantUtil.PRIMITIVE, Variant.Type.UUID);
+    VariantTestUtils.testVariant(vb.build(), v -> {
+      VariantTestUtils.checkType(v, VariantFormat.PRIMITIVE, Variant.Type.UUID);
       Assert.assertEquals(expected, v.getUUID());
     });
 

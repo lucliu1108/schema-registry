@@ -36,12 +36,12 @@ import org.slf4j.LoggerFactory;
 public class TestVariantObject {
   private static final Logger LOG = LoggerFactory.getLogger(TestVariantObject.class);
 
-  private static final byte[] VALUE_NULL = new byte[] {VariantTestUtil.primitiveHeader(0)};
-  private static final byte[] VALUE_BOOL = new byte[] {VariantTestUtil.primitiveHeader(1)};
+  private static final byte[] VALUE_NULL = new byte[] {VariantTestUtils.primitiveHeader(0)};
+  private static final byte[] VALUE_BOOL = new byte[] {VariantTestUtils.primitiveHeader(1)};
   private static final byte[] VALUE_INT =
-      new byte[] {VariantTestUtil.primitiveHeader(5), (byte) 0xD2, 0x02, (byte) 0x96, 0x49};
+      new byte[] {VariantTestUtils.primitiveHeader(5), (byte) 0xD2, 0x02, (byte) 0x96, 0x49};
   private static final byte[] VALUE_STRING =
-      new byte[] {VariantTestUtil.primitiveHeader(16), 0x07, 0x00, 0x00, 0x00, 'v', 'a', 'r', 'i', 'a', 'n', 't'};
+      new byte[] {VariantTestUtils.primitiveHeader(16), 0x07, 0x00, 0x00, 0x00, 'v', 'a', 'r', 'i', 'a', 'n', 't'};
   private static final byte[] VALUE_DATE = new byte[] {0b101100, (byte) 0xE3, 0x4E, 0x00, 0x00};
 
   private static byte[] constructObject(Map<String, Integer> keys, Map<String, byte[]> fields, boolean orderedData) {
@@ -53,14 +53,14 @@ public class TestVariantObject {
     }
 
     boolean isLarge = fields.size() > 0xFF;
-    int fieldIdSize = VariantTestUtil.getMinIntegerSize(maxId);
-    int offsetSize = VariantTestUtil.getMinIntegerSize(dataSize);
+    int fieldIdSize = VariantTestUtils.getMinIntegerSize(maxId);
+    int offsetSize = VariantTestUtils.getMinIntegerSize(dataSize);
     // The space for header byte, object size, id list, and offset list.
     int headerSize = 1 + (isLarge ? 4 : 1) + fields.size() * fieldIdSize + (fields.size() + 1) * offsetSize;
 
     ByteBuffer output = ByteBuffer.allocate(headerSize + dataSize).order(ByteOrder.LITTLE_ENDIAN);
 
-    output.put(VariantUtil.objectHeader(isLarge, fieldIdSize, offsetSize));
+    output.put(VariantFormat.objectHeader(isLarge, fieldIdSize, offsetSize));
 
     if (isLarge) {
       output.putInt(fields.size());
@@ -74,17 +74,17 @@ public class TestVariantObject {
     // write field ids
     for (String fieldName : sortedFieldNames) {
       int fieldId = keys.get(fieldName);
-      VariantTestUtil.writeVarlenInt(output, fieldId, fieldIdSize);
+      VariantTestUtils.writeVarlenInt(output, fieldId, fieldIdSize);
     }
 
     // write offsets
     int currOffset = 0;
     for (String fieldName : sortedFieldNames) {
       int offsetToWrite = orderedData ? currOffset : dataSize - currOffset - fields.get(fieldName).length;
-      VariantTestUtil.writeVarlenInt(output, offsetToWrite, offsetSize);
+      VariantTestUtils.writeVarlenInt(output, offsetToWrite, offsetSize);
       currOffset += fields.get(fieldName).length;
     }
-    VariantTestUtil.writeVarlenInt(output, orderedData ? currOffset : 0, offsetSize);
+    VariantTestUtils.writeVarlenInt(output, orderedData ? currOffset : 0, offsetSize);
 
     // write data
     for (int i = 0; i < sortedFieldNames.length; ++i) {
@@ -97,7 +97,7 @@ public class TestVariantObject {
 
   private static ByteBuffer constructMetadata(Boolean isSorted, List<String> fieldNames) {
     if (fieldNames.isEmpty()) {
-      return VariantTestUtil.EMPTY_METADATA;
+      return VariantTestUtils.EMPTY_METADATA;
     }
 
     int dataSize = 0;
@@ -105,23 +105,23 @@ public class TestVariantObject {
       dataSize += fieldName.length();
     }
 
-    int offsetSize = VariantTestUtil.getMinIntegerSize(dataSize);
+    int offsetSize = VariantTestUtils.getMinIntegerSize(dataSize);
     int offsetListStart = 1 + offsetSize;
     int stringStart = offsetListStart + (fieldNames.size() + 1) * offsetSize;
     int metadataSize = stringStart + dataSize;
 
     ByteBuffer output = ByteBuffer.allocate(metadataSize).order(ByteOrder.LITTLE_ENDIAN);
 
-    output.put(VariantTestUtil.metadataHeader(isSorted, offsetSize));
-    VariantTestUtil.writeVarlenInt(output, fieldNames.size(), offsetSize);
+    output.put(VariantTestUtils.metadataHeader(isSorted, offsetSize));
+    VariantTestUtils.writeVarlenInt(output, fieldNames.size(), offsetSize);
 
     // write offsets
     int currentOffset = 0;
     for (String fieldName : fieldNames) {
-      VariantTestUtil.writeVarlenInt(output, currentOffset, offsetSize);
+      VariantTestUtils.writeVarlenInt(output, currentOffset, offsetSize);
       currentOffset += fieldName.length();
     }
-    VariantTestUtil.writeVarlenInt(output, currentOffset, offsetSize);
+    VariantTestUtils.writeVarlenInt(output, currentOffset, offsetSize);
 
     // write strings
     for (String fieldName : fieldNames) {
@@ -134,9 +134,9 @@ public class TestVariantObject {
 
   @Test
   public void testEmptyObject() {
-    Variant value = new Variant(ByteBuffer.wrap(new byte[] {0b10, 0x00}), VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    Variant value = new Variant(ByteBuffer.wrap(new byte[] {0b10, 0x00}), VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(0, v.numObjectElements());
     });
   }
@@ -144,9 +144,9 @@ public class TestVariantObject {
   @Test
   public void testEmptyLargeObject() {
     Variant value = new Variant(
-        ByteBuffer.wrap(new byte[] {0b1000010, 0x00, 0x00, 0x00, 0x00}), VariantTestUtil.EMPTY_METADATA);
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+        ByteBuffer.wrap(new byte[] {0b1000010, 0x00, 0x00, 0x00, 0x00}), VariantTestUtils.EMPTY_METADATA);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(0, v.numObjectElements());
     });
   }
@@ -159,14 +159,14 @@ public class TestVariantObject {
     Variant value = new Variant(
         ByteBuffer.wrap(constructObject(keys, fields, true)),
         constructMetadata(false, ImmutableList.of("c", "b", "a")));
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(3, v.numObjectElements());
-      VariantTestUtil.checkType(v.getFieldByKey("a"), VariantUtil.PRIMITIVE, Variant.Type.INT);
+      VariantTestUtils.checkType(v.getFieldByKey("a"), VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(1234567890, v.getFieldByKey("a").getInt());
-      VariantTestUtil.checkType(v.getFieldByKey("b"), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getFieldByKey("b"), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getFieldByKey("b").getBoolean());
-      VariantTestUtil.checkType(v.getFieldByKey("c"), VariantUtil.PRIMITIVE, Variant.Type.STRING);
+      VariantTestUtils.checkType(v.getFieldByKey("c"), VariantFormat.PRIMITIVE, Variant.Type.STRING);
       Assert.assertEquals("variant", v.getFieldByKey("c").getString());
     });
   }
@@ -180,22 +180,22 @@ public class TestVariantObject {
     Variant value = new Variant(
         ByteBuffer.wrap(constructObject(keys, fields, true)),
         constructMetadata(true, ImmutableList.of("a", "b", "c")));
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(3, v.numObjectElements());
-      VariantTestUtil.checkType(v.getFieldByKey("a"), VariantUtil.PRIMITIVE, Variant.Type.INT);
+      VariantTestUtils.checkType(v.getFieldByKey("a"), VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(1234567890, v.getFieldByKey("a").getInt());
-      VariantTestUtil.checkType(v.getFieldByKey("b"), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getFieldByKey("b"), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getFieldByKey("b").getBoolean());
-      VariantTestUtil.checkType(v.getFieldByKey("c"), VariantUtil.OBJECT, Variant.Type.OBJECT);
+      VariantTestUtils.checkType(v.getFieldByKey("c"), VariantFormat.OBJECT, Variant.Type.OBJECT);
 
       Variant nestedV = v.getFieldByKey("c");
       Assert.assertEquals(2, nestedV.numObjectElements());
-      VariantTestUtil.checkType(nestedV.getFieldByKey("a"), VariantUtil.PRIMITIVE, Variant.Type.DATE);
+      VariantTestUtils.checkType(nestedV.getFieldByKey("a"), VariantFormat.PRIMITIVE, Variant.Type.DATE);
       Assert.assertEquals(
           LocalDate.parse("2025-04-17"),
           LocalDate.ofEpochDay(nestedV.getFieldByKey("a").getInt()));
-      VariantTestUtil.checkType(nestedV.getFieldByKey("c"), VariantUtil.PRIMITIVE, Variant.Type.NULL);
+      VariantTestUtils.checkType(nestedV.getFieldByKey("c"), VariantFormat.PRIMITIVE, Variant.Type.NULL);
     });
   }
 
@@ -207,14 +207,14 @@ public class TestVariantObject {
     Variant value = new Variant(
         ByteBuffer.wrap(constructObject(keys, fields, false)),
         constructMetadata(true, ImmutableList.of("a", "b", "c")));
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(3, v.numObjectElements());
-      VariantTestUtil.checkType(v.getFieldByKey("a"), VariantUtil.PRIMITIVE, Variant.Type.INT);
+      VariantTestUtils.checkType(v.getFieldByKey("a"), VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(1234567890, v.getFieldByKey("a").getInt());
-      VariantTestUtil.checkType(v.getFieldByKey("b"), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getFieldByKey("b"), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getFieldByKey("b").getBoolean());
-      VariantTestUtil.checkType(v.getFieldByKey("c"), VariantUtil.PRIMITIVE, Variant.Type.STRING);
+      VariantTestUtils.checkType(v.getFieldByKey("c"), VariantFormat.PRIMITIVE, Variant.Type.STRING);
       Assert.assertEquals("variant", v.getFieldByKey("c").getString());
     });
   }
@@ -224,17 +224,17 @@ public class TestVariantObject {
         ByteBuffer.wrap(constructObject(
             ImmutableMap.of("a", 0, "b", 1, "c", 2),
             ImmutableMap.of(
-                "a", VariantTestUtil.constructString(randomString), "b", VALUE_BOOL, "c", VALUE_INT),
+                "a", VariantTestUtils.constructString(randomString), "b", VALUE_BOOL, "c", VALUE_INT),
             true)),
         constructMetadata(true, ImmutableList.of("a", "b", "c")));
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(3, v.numObjectElements());
-      VariantTestUtil.checkType(v.getFieldByKey("a"), VariantUtil.PRIMITIVE, Variant.Type.STRING);
+      VariantTestUtils.checkType(v.getFieldByKey("a"), VariantFormat.PRIMITIVE, Variant.Type.STRING);
       Assert.assertEquals(randomString, v.getFieldByKey("a").getString());
-      VariantTestUtil.checkType(v.getFieldByKey("b"), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getFieldByKey("b"), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getFieldByKey("b").getBoolean());
-      VariantTestUtil.checkType(v.getFieldByKey("c"), VariantUtil.PRIMITIVE, Variant.Type.INT);
+      VariantTestUtils.checkType(v.getFieldByKey("c"), VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(1234567890, v.getFieldByKey("c").getInt());
     });
   }
@@ -242,19 +242,19 @@ public class TestVariantObject {
   @Test
   public void testObjectTwoByteOffset() {
     // a string larger than 255 bytes to push the offset size above 1 byte
-    testObjectOffsetSize(VariantTestUtil.randomString(300));
+    testObjectOffsetSize(VariantTestUtils.randomString(300));
   }
 
   @Test
   public void testObjectThreeByteOffset() {
     // a string larger than 65535 bytes to push the offset size above 2 bytes
-    testObjectOffsetSize(VariantTestUtil.randomString(70_000));
+    testObjectOffsetSize(VariantTestUtils.randomString(70_000));
   }
 
   @Test
   public void testObjectFourByteOffset() {
     // a string larger than 16777215 bytes to push the offset size above 3 bytes
-    testObjectOffsetSize(VariantTestUtil.randomString(16_800_000));
+    testObjectOffsetSize(VariantTestUtils.randomString(16_800_000));
   }
 
   private void testObjectFieldIdSize(int numExtraKeys) {
@@ -271,12 +271,12 @@ public class TestVariantObject {
             ImmutableMap.of("z1", VALUE_BOOL, "z2", VALUE_INT),
             true)),
         constructMetadata(true, fieldNames));
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(2, v.numObjectElements());
-      VariantTestUtil.checkType(v.getFieldByKey("z1"), VariantUtil.PRIMITIVE, Variant.Type.BOOLEAN);
+      VariantTestUtils.checkType(v.getFieldByKey("z1"), VariantFormat.PRIMITIVE, Variant.Type.BOOLEAN);
       Assert.assertTrue(v.getFieldByKey("z1").getBoolean());
-      VariantTestUtil.checkType(v.getFieldByKey("z2"), VariantUtil.PRIMITIVE, Variant.Type.INT);
+      VariantTestUtils.checkType(v.getFieldByKey("z2"), VariantFormat.PRIMITIVE, Variant.Type.INT);
       Assert.assertEquals(1234567890, v.getFieldByKey("z2").getInt());
     });
   }
@@ -306,7 +306,7 @@ public class TestVariantObject {
     for (int i = 0; i < 1000; i++) {
       String name = String.format("a%04d", i);
       keys.put(name, i);
-      fields.put(name, VariantTestUtil.constructString(VariantTestUtil.randomString(5)));
+      fields.put(name, VariantTestUtils.constructString(VariantTestUtils.randomString(5)));
     }
 
     List<String> sortedKeys = new ArrayList<>(keys.keySet());
@@ -314,13 +314,13 @@ public class TestVariantObject {
 
     Variant value =
         new Variant(ByteBuffer.wrap(constructObject(keys, fields, false)), constructMetadata(true, sortedKeys));
-    VariantTestUtil.testVariant(value, v -> {
-      VariantTestUtil.checkType(v, VariantUtil.OBJECT, Variant.Type.OBJECT);
+    VariantTestUtils.testVariant(value, v -> {
+      VariantTestUtils.checkType(v, VariantFormat.OBJECT, Variant.Type.OBJECT);
       Assert.assertEquals(1000, v.numObjectElements());
 
       for (int i = 0; i < 1000; i++) {
         String name = String.format("a%04d", i);
-        VariantTestUtil.checkType(v.getFieldByKey(name), VariantUtil.PRIMITIVE, Variant.Type.STRING);
+        VariantTestUtils.checkType(v.getFieldByKey(name), VariantFormat.PRIMITIVE, Variant.Type.STRING);
         Assert.assertEquals(
             new String(fields.get(name), 5, fields.get(name).length - 5),
             v.getFieldByKey(name).getString());
@@ -332,7 +332,7 @@ public class TestVariantObject {
   public void testInvalidObject() {
     try {
       // An array header
-      Variant value = new Variant(ByteBuffer.wrap(new byte[] {0b10011}), VariantTestUtil.EMPTY_METADATA);
+      Variant value = new Variant(ByteBuffer.wrap(new byte[] {0b10011}), VariantTestUtils.EMPTY_METADATA);
       value.numObjectElements();
       Assert.fail("Expected exception not thrown");
     } catch (Exception e) {

@@ -18,7 +18,6 @@ package io.confluent.kafka.schemaregistry.type;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.Instant;
@@ -40,7 +39,7 @@ public class TestVariantJsonConverter {
   public void testToJsonNull() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendNull();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isNull());
   }
 
@@ -48,7 +47,7 @@ public class TestVariantJsonConverter {
   public void testToJsonBooleanTrue() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendBoolean(true);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isBoolean());
     Assert.assertTrue(node.booleanValue());
   }
@@ -57,7 +56,7 @@ public class TestVariantJsonConverter {
   public void testToJsonBooleanFalse() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendBoolean(false);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertFalse(node.booleanValue());
   }
 
@@ -65,7 +64,7 @@ public class TestVariantJsonConverter {
   public void testToJsonByte() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendByte((byte) 42);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isNumber());
     Assert.assertEquals(42, node.intValue());
   }
@@ -74,7 +73,7 @@ public class TestVariantJsonConverter {
   public void testToJsonShort() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendShort((short) 1234);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isNumber());
     Assert.assertEquals(1234, node.intValue());
   }
@@ -83,7 +82,7 @@ public class TestVariantJsonConverter {
   public void testToJsonInt() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendInt(123456);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isInt());
     Assert.assertEquals(123456, node.intValue());
   }
@@ -92,7 +91,7 @@ public class TestVariantJsonConverter {
   public void testToJsonLong() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendLong(9876543210L);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isNumber());
     Assert.assertEquals(9876543210L, node.longValue());
   }
@@ -101,7 +100,7 @@ public class TestVariantJsonConverter {
   public void testToJsonFloat() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendFloat(3.14f);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isNumber());
     Assert.assertEquals(3.14f, node.floatValue(), 0.001f);
   }
@@ -110,7 +109,7 @@ public class TestVariantJsonConverter {
   public void testToJsonDouble() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendDouble(2.718281828);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isDouble());
     Assert.assertEquals(2.718281828, node.doubleValue(), 0.0000001);
   }
@@ -119,7 +118,7 @@ public class TestVariantJsonConverter {
   public void testToJsonDecimal() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendDecimal(new BigDecimal("123.456"));
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isNumber());
     Assert.assertEquals(new BigDecimal("123.456"), node.decimalValue());
   }
@@ -128,7 +127,7 @@ public class TestVariantJsonConverter {
   public void testToJsonString() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendString("hello world");
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isTextual());
     Assert.assertEquals("hello world", node.textValue());
   }
@@ -137,7 +136,7 @@ public class TestVariantJsonConverter {
   public void testToJsonEmptyString() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendString("");
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertEquals("", node.textValue());
   }
 
@@ -148,7 +147,7 @@ public class TestVariantJsonConverter {
     VariantBuilder builder = new VariantBuilder();
     int days = (int) LocalDate.of(2025, 4, 17).toEpochDay();
     builder.appendDate(days);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertEquals("2025-04-17", node.textValue());
   }
 
@@ -157,7 +156,7 @@ public class TestVariantJsonConverter {
     VariantBuilder builder = new VariantBuilder();
     long micros = Instant.parse("2025-04-17T12:00:00Z").getEpochSecond() * 1_000_000;
     builder.appendTimestampTz(micros);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isTextual());
     Assert.assertTrue(node.textValue().contains("2025-04-17"));
   }
@@ -168,7 +167,7 @@ public class TestVariantJsonConverter {
     LocalDateTime ldt = LocalDateTime.of(2025, 4, 17, 12, 0, 0);
     long micros = ldt.toEpochSecond(ZoneOffset.UTC) * 1_000_000;
     builder.appendTimestampNtz(micros);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isTextual());
     Assert.assertTrue(node.textValue().contains("2025-04-17"));
   }
@@ -178,7 +177,7 @@ public class TestVariantJsonConverter {
     VariantBuilder builder = new VariantBuilder();
     long micros = LocalTime.of(14, 30, 0).toNanoOfDay() / 1000;
     builder.appendTime(micros);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertEquals("14:30", node.textValue());
   }
 
@@ -188,7 +187,7 @@ public class TestVariantJsonConverter {
   public void testToJsonBinary() {
     VariantBuilder builder = new VariantBuilder();
     builder.appendBinary(ByteBuffer.wrap(new byte[]{0, 1, 2, 3}));
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isTextual());
     Assert.assertEquals("AAECAw==", node.textValue());
   }
@@ -198,7 +197,7 @@ public class TestVariantJsonConverter {
     VariantBuilder builder = new VariantBuilder();
     UUID uuid = UUID.fromString("550e8400-e29b-41d4-a716-446655440000");
     builder.appendUUID(uuid);
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertEquals("550e8400-e29b-41d4-a716-446655440000", node.textValue());
   }
 
@@ -209,7 +208,7 @@ public class TestVariantJsonConverter {
     VariantBuilder builder = new VariantBuilder();
     builder.startObject();
     builder.endObject();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isObject());
     Assert.assertEquals(0, node.size());
   }
@@ -223,7 +222,7 @@ public class TestVariantJsonConverter {
     obj.appendKey("age");
     obj.appendInt(30);
     builder.endObject();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isObject());
     Assert.assertEquals("Alice", node.get("name").textValue());
     Assert.assertEquals(30, node.get("age").intValue());
@@ -241,7 +240,7 @@ public class TestVariantJsonConverter {
     inner.appendString("10001");
     outer.endObject();
     builder.endObject();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertEquals("NY", node.get("address").get("city").textValue());
     Assert.assertEquals("10001", node.get("address").get("zip").textValue());
   }
@@ -253,7 +252,7 @@ public class TestVariantJsonConverter {
     VariantBuilder builder = new VariantBuilder();
     builder.startArray();
     builder.endArray();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isArray());
     Assert.assertEquals(0, node.size());
   }
@@ -266,7 +265,7 @@ public class TestVariantJsonConverter {
     arr.appendInt(2);
     arr.appendInt(3);
     builder.endArray();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isArray());
     Assert.assertEquals(3, node.size());
     Assert.assertEquals(1, node.get(0).intValue());
@@ -283,7 +282,7 @@ public class TestVariantJsonConverter {
     arr.appendBoolean(true);
     arr.appendNull();
     builder.endArray();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertEquals(4, node.size());
     Assert.assertEquals("hello", node.get(0).textValue());
     Assert.assertEquals(42, node.get(1).intValue());
@@ -303,7 +302,7 @@ public class TestVariantJsonConverter {
     arr.appendInt(2);
     obj.endArray();
     builder.endObject();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.get("items").isArray());
     Assert.assertEquals(2, node.get("items").size());
     Assert.assertEquals(1, node.get("items").get(0).intValue());
@@ -322,7 +321,7 @@ public class TestVariantJsonConverter {
     obj2.appendInt(2);
     arr.endObject();
     builder.endArray();
-    JsonNode node = VariantJsonConverter.toJsonNode(builder.build());
+    JsonNode node = VariantUtils.toJsonNode(builder.build());
     Assert.assertTrue(node.isArray());
     Assert.assertEquals(2, node.size());
     Assert.assertEquals(1, node.get(0).get("id").intValue());
@@ -338,7 +337,7 @@ public class TestVariantJsonConverter {
     obj.appendKey("a");
     obj.appendInt(1);
     builder.endObject();
-    String json = VariantJsonConverter.toJsonString(builder.build());
+    String json = VariantUtils.toJsonString(builder.build());
     Assert.assertEquals("{\"a\":1}", json);
   }
 
@@ -348,8 +347,8 @@ public class TestVariantJsonConverter {
   public void testRoundTripSimpleObject() throws Exception {
     String json = "{\"name\":\"Alice\",\"age\":30,\"active\":true}";
     JsonNode original = MAPPER.readTree(json);
-    Variant variant = VariantJsonConverter.toVariant(original);
-    JsonNode result = VariantJsonConverter.toJsonNode(variant);
+    Variant variant = VariantUtils.fromJsonNode(original);
+    JsonNode result = VariantUtils.toJsonNode(variant);
     // Fields are sorted alphabetically in variant encoding
     Assert.assertEquals("Alice", result.get("name").textValue());
     Assert.assertEquals(30, result.get("age").intValue());
@@ -360,8 +359,8 @@ public class TestVariantJsonConverter {
   public void testRoundTripNestedStructure() throws Exception {
     String json = "{\"items\":[{\"id\":1},{\"id\":2}],\"count\":2}";
     JsonNode original = MAPPER.readTree(json);
-    Variant variant = VariantJsonConverter.toVariant(original);
-    JsonNode result = VariantJsonConverter.toJsonNode(variant);
+    Variant variant = VariantUtils.fromJsonNode(original);
+    JsonNode result = VariantUtils.toJsonNode(variant);
     Assert.assertEquals(2, result.get("count").intValue());
     Assert.assertEquals(1, result.get("items").get(0).get("id").intValue());
     Assert.assertEquals(2, result.get("items").get(1).get("id").intValue());
@@ -371,18 +370,18 @@ public class TestVariantJsonConverter {
   public void testRoundTripScalars() throws Exception {
     JsonNode original = MAPPER.readTree("\"hello\"");
     Assert.assertEquals("hello",
-        VariantJsonConverter.toJsonNode(VariantJsonConverter.toVariant(original)).textValue());
+        VariantUtils.toJsonNode(VariantUtils.fromJsonNode(original)).textValue());
 
     original = MAPPER.readTree("42");
     Assert.assertEquals(42,
-        VariantJsonConverter.toJsonNode(VariantJsonConverter.toVariant(original)).intValue());
+        VariantUtils.toJsonNode(VariantUtils.fromJsonNode(original)).intValue());
 
     original = MAPPER.readTree("true");
     Assert.assertTrue(
-        VariantJsonConverter.toJsonNode(VariantJsonConverter.toVariant(original)).booleanValue());
+        VariantUtils.toJsonNode(VariantUtils.fromJsonNode(original)).booleanValue());
 
     original = MAPPER.readTree("null");
     Assert.assertTrue(
-        VariantJsonConverter.toJsonNode(VariantJsonConverter.toVariant(original)).isNull());
+        VariantUtils.toJsonNode(VariantUtils.fromJsonNode(original)).isNull());
   }
 }

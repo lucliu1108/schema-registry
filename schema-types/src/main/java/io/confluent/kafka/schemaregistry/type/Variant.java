@@ -62,10 +62,10 @@ public final class Variant {
     this.metadata = metadata.asReadOnlyBuffer();
 
     // There is currently only one allowed version.
-    if ((metadata.get(metadata.position()) & VariantUtil.VERSION_MASK) != VariantUtil.VERSION) {
+    if ((metadata.get(metadata.position()) & VariantFormat.VERSION_MASK) != VariantFormat.VERSION) {
       throw new UnsupportedOperationException(String.format(
           "Unsupported variant metadata version: %d",
-          metadata.get(metadata.position()) & VariantUtil.VERSION_MASK));
+          metadata.get(metadata.position()) & VariantFormat.VERSION_MASK));
     }
   }
 
@@ -81,77 +81,77 @@ public final class Variant {
    * @return the boolean value
    */
   public boolean getBoolean() {
-    return VariantUtil.getBoolean(value);
+    return VariantFormat.getBoolean(value);
   }
 
   /**
    * @return the byte value
    */
   public byte getByte() {
-    return VariantUtil.getByte(value);
+    return VariantFormat.getByte(value);
   }
 
   /**
    * @return the short value
    */
   public short getShort() {
-    return VariantUtil.getShort(value);
+    return VariantFormat.getShort(value);
   }
 
   /**
    * @return the int value
    */
   public int getInt() {
-    return VariantUtil.getInt(value);
+    return VariantFormat.getInt(value);
   }
 
   /**
    * @return the long value
    */
   public long getLong() {
-    return VariantUtil.getLong(value);
+    return VariantFormat.getLong(value);
   }
 
   /**
    * @return the double value
    */
   public double getDouble() {
-    return VariantUtil.getDouble(value);
+    return VariantFormat.getDouble(value);
   }
 
   /**
    * @return the decimal value
    */
   public BigDecimal getDecimal() {
-    return VariantUtil.getDecimal(value);
+    return VariantFormat.getDecimal(value);
   }
 
   /**
    * @return the float value
    */
   public float getFloat() {
-    return VariantUtil.getFloat(value);
+    return VariantFormat.getFloat(value);
   }
 
   /**
    * @return the binary value
    */
   public ByteBuffer getBinary() {
-    return VariantUtil.getBinary(value);
+    return VariantFormat.getBinary(value);
   }
 
   /**
    * @return the UUID value
    */
   public UUID getUUID() {
-    return VariantUtil.getUUID(value);
+    return VariantFormat.getUUID(value);
   }
 
   /**
    * @return the string value
    */
   public String getString() {
-    return VariantUtil.getString(value);
+    return VariantFormat.getString(value);
   }
 
   /**
@@ -186,7 +186,7 @@ public final class Variant {
    * @return the type of the variant value
    */
   public Type getType() {
-    return VariantUtil.getType(value);
+    return VariantFormat.getType(value);
   }
 
   /**
@@ -194,7 +194,7 @@ public final class Variant {
    * @throws IllegalArgumentException if `getType()` does not return `Type.OBJECT`
    */
   public int numObjectElements() {
-    return VariantUtil.getObjectInfo(value).numElements;
+    return VariantFormat.getObjectInfo(value).numElements;
   }
 
   /**
@@ -206,7 +206,7 @@ public final class Variant {
    * @throws IllegalArgumentException if `getType()` does not return `Type.OBJECT`
    */
   public Variant getFieldByKey(String key) {
-    VariantUtil.ObjectInfo info = VariantUtil.getObjectInfo(value);
+    VariantFormat.ObjectInfo info = VariantFormat.getObjectInfo(value);
     // Use linear search for a short list. Switch to binary search when the length reaches
     // `BINARY_SEARCH_THRESHOLD`.
     if (info.numElements < BINARY_SEARCH_THRESHOLD) {
@@ -275,7 +275,7 @@ public final class Variant {
    * @throws IllegalArgumentException if `getType()` does not return `Type.OBJECT`
    */
   public ObjectField getFieldAtIndex(int idx) {
-    VariantUtil.ObjectInfo info = VariantUtil.getObjectInfo(value);
+    VariantFormat.ObjectInfo info = VariantFormat.getObjectInfo(value);
     // Use linear search for a short list. Switch to binary search when the length reaches
     // `BINARY_SEARCH_THRESHOLD`.
     ObjectField field = getFieldAtIndex(
@@ -300,10 +300,10 @@ public final class Variant {
       int offsetStart,
       int dataStart) {
     // idStart, offsetStart, and dataStart are absolute positions in the `value` buffer.
-    int id = VariantUtil.readUnsigned(value, idStart + idSize * index, idSize);
-    int offset = VariantUtil.readUnsigned(value, offsetStart + offsetSize * index, offsetSize);
-    String key = VariantUtil.getMetadataKey(metadata, id);
-    Variant v = new Variant(VariantUtil.slice(value, dataStart + offset), metadata);
+    int id = VariantFormat.readUnsigned(value, idStart + idSize * index, idSize);
+    int offset = VariantFormat.readUnsigned(value, offsetStart + offsetSize * index, offsetSize);
+    String key = VariantFormat.getMetadataKey(metadata, id);
+    Variant v = new Variant(VariantFormat.slice(value, dataStart + offset), metadata);
     return new ObjectField(key, v);
   }
 
@@ -312,7 +312,7 @@ public final class Variant {
    * @throws IllegalArgumentException if `getType()` does not return `Type.ARRAY`
    */
   public int numArrayElements() {
-    return VariantUtil.getArrayInfo(value).numElements;
+    return VariantFormat.getArrayInfo(value).numElements;
   }
 
   /**
@@ -324,7 +324,7 @@ public final class Variant {
    * @throws IllegalArgumentException if `getType()` does not return `Type.ARRAY`
    */
   public Variant getElementAtIndex(int index) {
-    VariantUtil.ArrayInfo info = VariantUtil.getArrayInfo(value);
+    VariantFormat.ArrayInfo info = VariantFormat.getArrayInfo(value);
     if (index < 0 || index >= info.numElements) {
       return null;
     }
@@ -341,7 +341,7 @@ public final class Variant {
       int index, ByteBuffer value, ByteBuffer metadata,
       int offsetSize, int offsetStart, int dataStart) {
     // offsetStart and dataStart are absolute positions in the `value` buffer.
-    int offset = VariantUtil.readUnsigned(value, offsetStart + offsetSize * index, offsetSize);
-    return new Variant(VariantUtil.slice(value, dataStart + offset), metadata);
+    int offset = VariantFormat.readUnsigned(value, offsetStart + offsetSize * index, offsetSize);
+    return new Variant(VariantFormat.slice(value, dataStart + offset), metadata);
   }
 }

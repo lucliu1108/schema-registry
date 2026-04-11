@@ -53,17 +53,18 @@ public class MetadataBuilder implements Metadata {
     byte[] metadata = new byte[(int) metadataSize];
     // Only unsorted dictionary keys are supported.
     // TODO: Support sorted dictionary keys.
-    int headerByte = VariantUtil.VERSION | ((offsetSize - 1) << 6);
-    VariantUtil.writeLong(metadata, 0, headerByte, 1);
-    VariantUtil.writeLong(metadata, 1, numKeys, offsetSize);
+    int headerByte = VariantFormat.VERSION | ((offsetSize - 1) << 6);
+    VariantFormat.writeLong(metadata, 0, headerByte, 1);
+    VariantFormat.writeLong(metadata, 1, numKeys, offsetSize);
     int currentOffset = 0;
     for (int i = 0; i < numKeys; ++i) {
-      VariantUtil.writeLong(metadata, offsetListOffset + i * offsetSize, currentOffset, offsetSize);
+      VariantFormat.writeLong(
+          metadata, offsetListOffset + i * offsetSize, currentOffset, offsetSize);
       byte[] key = dictionaryKeys.get(i);
       System.arraycopy(key, 0, metadata, dataOffset + currentOffset, key.length);
       currentOffset += key.length;
     }
-    VariantUtil.writeLong(metadata,
+    VariantFormat.writeLong(metadata,
         offsetListOffset + numKeys * offsetSize, currentOffset, offsetSize);
     return ByteBuffer.wrap(metadata);
   }
