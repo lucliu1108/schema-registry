@@ -359,7 +359,6 @@ public class TestVariantObject {
 
     // Embed in a larger buffer with a non-zero position, then make read-only
     // to force the else-branch in getMetadataMap.
-    // Do NOT call .slice() — that resets position to 0, hiding the bug.
     byte[] padded = new byte[10 + metaBytes.length];
     System.arraycopy(metaBytes, 0, padded, 10, metaBytes.length);
     ByteBuffer offsetMetadata = ByteBuffer.wrap(padded);
