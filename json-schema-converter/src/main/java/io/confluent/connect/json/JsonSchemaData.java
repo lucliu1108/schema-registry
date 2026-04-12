@@ -105,7 +105,6 @@ public class JsonSchemaData {
   public static final String CONNECT_TYPE_FLOAT64 = "float64";
   public static final String CONNECT_TYPE_BYTES = "bytes";
   public static final String CONNECT_TYPE_MAP = "map";
-  public static final String CONNECT_TYPE_VARIANT = "variant";
 
   public static final String DEFAULT_ID_PREFIX = "#id";
   public static final String JSON_ID_PROP = NAMESPACE + ".Id";
@@ -792,7 +791,6 @@ public class JsonSchemaData {
       case STRUCT:
         if (ConnectVariant.isVariant(schema)) {
           builder = EmptySchema.builder();
-          unprocessedProps.put(CONNECT_TYPE_PROP, CONNECT_TYPE_VARIANT);
         } else if (isUnionSchema(schema)) {
           CombinedSchema.Builder combinedBuilder = CombinedSchema.builder();
           combinedBuilder.criterion(CombinedSchema.ONE_CRITERION);
@@ -1117,12 +1115,7 @@ public class JsonSchemaData {
         builder = SchemaBuilder.array(toConnectSchema(ctx, itemsSchema));
       }
     } else if (jsonSchema instanceof EmptySchema) {
-      String type = (String) jsonSchema.getUnprocessedProperties().get(CONNECT_TYPE_PROP);
-      if (CONNECT_TYPE_VARIANT.equals(type)) {
-        builder = ConnectVariant.builder();
-      } else {
-        throw new DataException("Unsupported empty schema without variant type");
-      }
+      builder = ConnectVariant.builder();
     } else if (jsonSchema instanceof ObjectSchema) {
       ObjectSchema objectSchema = (ObjectSchema) jsonSchema;
       String type = (String) objectSchema.getUnprocessedProperties().get(CONNECT_TYPE_PROP);

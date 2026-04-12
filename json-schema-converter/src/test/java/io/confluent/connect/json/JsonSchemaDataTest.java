@@ -526,9 +526,7 @@ public class JsonSchemaDataTest {
 
   @Test
   public void testToConnectVariant() {
-    EmptySchema schema = EmptySchema.builder()
-        .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
-        .build();
+    EmptySchema schema = EmptySchema.builder().build();
     ObjectNode jsonValue = JsonNodeFactory.instance.objectNode();
     jsonValue.put("name", "Alice");
     jsonValue.put("age", 30);
@@ -638,7 +636,6 @@ public class JsonSchemaDataTest {
   @Test
   public void testToConnectVariantString() {
     org.everit.json.schema.EmptySchema schema = org.everit.json.schema.EmptySchema.builder()
-        .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
         .build();
     JsonNode jsonValue = JsonNodeFactory.instance.textNode("hello");
 
@@ -653,7 +650,6 @@ public class JsonSchemaDataTest {
   @Test
   public void testToConnectVariantNumber() {
     org.everit.json.schema.EmptySchema schema = org.everit.json.schema.EmptySchema.builder()
-        .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
         .build();
     JsonNode jsonValue = JsonNodeFactory.instance.numberNode(42);
 
@@ -668,7 +664,6 @@ public class JsonSchemaDataTest {
   @Test
   public void testToConnectVariantBoolean() {
     org.everit.json.schema.EmptySchema schema = org.everit.json.schema.EmptySchema.builder()
-        .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
         .build();
     JsonNode jsonValue = JsonNodeFactory.instance.booleanNode(true);
 
@@ -683,7 +678,6 @@ public class JsonSchemaDataTest {
   @Test
   public void testToConnectVariantArray() {
     org.everit.json.schema.EmptySchema schema = org.everit.json.schema.EmptySchema.builder()
-        .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
         .build();
     ArrayNode jsonValue = JsonNodeFactory.instance.arrayNode();
     jsonValue.add(1);
@@ -703,7 +697,6 @@ public class JsonSchemaDataTest {
   @Test
   public void testToConnectVariantNull() {
     org.everit.json.schema.EmptySchema schema = org.everit.json.schema.EmptySchema.builder()
-        .unprocessedProperties(ImmutableMap.of("connect.type", "variant"))
         .build();
     JsonNode jsonValue = JsonNodeFactory.instance.nullNode();
 
