@@ -90,7 +90,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import java.util.stream.Stream;
 
 @Tag("IntegrationTest")
@@ -171,9 +170,9 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             assertKeySchemaIdHeader(next.value.headers(), "IQv1 Window Header");
         }
 
-        // 2. Test null value handling - null inputs shouldn't be skipped
+        // 2. Test null value handling - null inputs are counted as events
         try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Send null value for "kafka" key - should be skipped, not counted
+            // Send null value for "kafka" key - counted as an event by count()
             producer.send(new ProducerRecord<>(inputTopic, 0, Long.valueOf(baseTime + 3000), createKey("kafka"), (GenericRecord) null)).get();
             // Send normal value for "streams" key
             producer.send(new ProducerRecord<>(inputTopic, 0, Long.valueOf(baseTime + 4000), createKey("streams"), createTextLine("streams value"))).get();
@@ -189,7 +188,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart + windowSize.toMillis()))) {
             assertTrue(it.hasNext(), "kafka window should still exist after null value");
             KeyValue<Long, ValueTimestampHeaders<Long>> next = it.next();
-            assertEquals(3L, next.value.value(), "kafka count should still be 3 (null was not skipped)");
+            assertEquals(3L, next.value.value(), "kafka count should be 3 (null value counted as event)");
             assertNotNull(next.value.value(), "kafka count should not be null");
             assertKeySchemaIdHeader(next.value.headers(), "IQv1 after null input");
         }
@@ -401,6 +400,20 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         closeStreams(streams);
+
+        // Verify changelog headers
+        String changelog = "window-agg-test" + suffix + "-" + storeName + "-changelog";
+        int expectedMinRecords = cachingEnabled ? 2 : 5;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords =
+            consumeRawChangelog(changelog, "agg-changelog-cg-" + testId, expectedMinRecords);
+
+        assertTrue(changelogRecords.size() >= expectedMinRecords,
+            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertKeySchemaIdHeader(record.headers(), "Aggregate changelog");
+            }
+        }
     }
 
     @ParameterizedTest
@@ -736,7 +749,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(2000); // Wait for records to be buffered
+        Thread.sleep(2000);
 
         // Verify IQv1 queries on join stores before consuming output topic
         Properties consumerProps = createConsumerProps("join-output-cg-" + testId);
@@ -865,8 +878,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
 
         List<ConsumerRecord<byte[], byte[]>> outputRecords = new ArrayList<>();
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps,
-            ByteArrayDeserializer.class.newInstance(),
-            ByteArrayDeserializer.class.newInstance())) {
+            new ByteArrayDeserializer(),
+            new ByteArrayDeserializer())) {
             consumer.subscribe(Collections.singletonList(outputTopic));
             ConsumerRecords<byte[], byte[]> records = consumer.poll(java.time.Duration.ofSeconds(3));
             records.forEach(outputRecords::add);
@@ -888,8 +901,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         Properties consumerProps2 = createConsumerProps("suppress-output-cg2-" + testId);
         consumerProps2.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps2,
-            ByteArrayDeserializer.class.newInstance(),
-            ByteArrayDeserializer.class.newInstance())) {
+            new ByteArrayDeserializer(),
+            new ByteArrayDeserializer())) {
             consumer.subscribe(Collections.singletonList(outputTopic));
             ConsumerRecords<byte[], byte[]> records = consumer.poll(java.time.Duration.ofSeconds(5));
             records.forEach(outputRecords::add);
@@ -931,7 +944,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("nullvalue"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
             assertTrue(it.hasNext(), "Should find nullvalue in store");
             KeyValue<Long, ValueTimestampHeaders<Long>> result = it.next();
-            assertEquals(2L, result.value.value(), "nullvalue count should be 1 (null value should be counted as an event, not skipped)");
+            assertEquals(2L, result.value.value(), "nullvalue count should be 2 (null value is counted as an event)");
             assertKeySchemaIdHeader(result.value.headers(), "IQv1 null value handling in suppressed store");
         }
 
