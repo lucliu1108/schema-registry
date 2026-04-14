@@ -130,7 +130,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.timestampedKeyValueStoreBuilderWithHeaders(
+                Stores.timestampedKeyValueStoreWithHeadersBuilder(
                     Stores.persistentTimestampedKeyValueStoreWithHeaders(STORE_NAME),
                     keySerde,
                     valueSerde))
@@ -250,7 +250,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.timestampedKeyValueStoreBuilderWithHeaders(
+                Stores.timestampedKeyValueStoreWithHeadersBuilder(
                     Stores.persistentTimestampedKeyValueStoreWithHeaders(iqv1StoreName),
                     keySerde,
                     valueSerde))
@@ -380,7 +380,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.timestampedKeyValueStoreBuilderWithHeaders(
+                Stores.timestampedKeyValueStoreWithHeadersBuilder(
                     Stores.persistentTimestampedKeyValueStoreWithHeaders(storeName),
                     keySerde,
                     valueSerde))
@@ -556,7 +556,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.timestampedKeyValueStoreBuilderWithHeaders(
+                Stores.timestampedKeyValueStoreWithHeadersBuilder(
                     Stores.persistentTimestampedKeyValueStoreWithHeaders(storeName),
                     keySerde,
                     valueSerde))
@@ -607,7 +607,7 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.timestampedKeyValueStoreBuilderWithHeaders(
+                Stores.timestampedKeyValueStoreWithHeadersBuilder(
                         Stores.persistentTimestampedKeyValueStoreWithHeaders(storeName),
                         keySerde,
                         valueSerde)
