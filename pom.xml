@@ -484,7 +484,7 @@
             <dependency>
                 <groupId>io.confluent</groupId>
                 <artifactId>kafka-protobuf-types</artifactId>
-                <version>${project.version}</version>
+                <version>${io.confluent.schema-registry.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.confluent</groupId>
