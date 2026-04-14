@@ -73,8 +73,6 @@ public class SchemaDiffTest {
           .collect(toList());
       final String description = (String) testCase.get("description");
 
-      Schema originalSchema = original.rawSchema();
-      Schema updateSchema = update.rawSchema();
       List<Difference> differences = SchemaDiff.compare(original.rawSchema(), update.rawSchema());
       final List<Difference> incompatibleDiffs = differences.stream()
           .filter(diff -> !SchemaDiff.COMPATIBLE_CHANGES_STRICT.contains(diff.getType()))
