@@ -312,6 +312,7 @@ public class ArraySchemaDiff {
   }
 
   static boolean isOpenContentModel(final ArraySchema schema) {
+    // Given A=additionalItems, U=unevaluatedItems, S=schema of additionalItems
     // Fully open = (A = true) or (A is missing and U is missing or true)
     if (!schema.permitsAdditionalItems()) {
       return false;
@@ -325,6 +326,7 @@ public class ArraySchemaDiff {
   }
 
   private static Schema schemaFromPartiallyOpenContentModel(final ArraySchema schema) {
+    // Given A=additionalItems, U=unevaluatedItems, S=schema of additionalItems
     // Partially open = (A = S) or (A is missing and U = S)
     if (schema.getSchemaOfAdditionalItems() != null) {
       return schema.getSchemaOfAdditionalItems();

@@ -337,6 +337,7 @@ public class ObjectSchemaDiff {
   }
 
   static boolean isOpenContentModel(final ObjectSchema schema) {
+    // Given A=additionalProperties, U=unevaluatedProperties, S=schema of additionalProperties
     // Fully open = (A = true) or (A is missing and U is true or missing)
     if (!schema.permitsAdditionalProperties()) {
       return false;
@@ -355,6 +356,7 @@ public class ObjectSchemaDiff {
 
   private static Schema schemaFromPartiallyOpenContentModel(
       final ObjectSchema schema, final String propertyKey) {
+    // Given A=additionalProperties, U=unevaluatedProperties, S=schema of additionalProperties
     // Partially open = (A = S) or (A is missing and U = S)
     // Check pattern properties first
     for (Map.Entry<Pattern, Schema> entry : schema.getPatternProperties().entrySet()) {
