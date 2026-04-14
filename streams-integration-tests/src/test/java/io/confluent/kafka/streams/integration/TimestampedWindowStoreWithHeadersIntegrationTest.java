@@ -891,7 +891,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         @Override
         public void process(Record<GenericRecord, GenericRecord> record) {
             String operation = record.value().get("operation").toString();
-            long windowStart = (record.timestamp() / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
+            long windowStart = calculateWindowStartTime(record.timestamp());
 
             switch (operation) {
                 case "PUT":
@@ -962,7 +962,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         @Override
         public void process(Record<GenericRecord, GenericRecord> record) {
             String operation = record.value().get("operation").toString();
-            long windowStart = (record.timestamp() / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
+            long windowStart = calculateWindowStartTime(record.timestamp());
 
             switch (operation) {
                 case "PUT":
@@ -1115,7 +1115,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         }
 
         private void handlePut(Record<GenericRecord, GenericRecord> record) {
-            long windowStart = (record.timestamp() / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
+            long windowStart = calculateWindowStartTime(record.timestamp());
 
             ValueTimestampHeaders<GenericRecord> toStore =
                 ValueTimestampHeaders.make(record.value(), record.timestamp(), record.headers());
@@ -1127,7 +1127,7 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
         }
 
         private void handleFetch(Record<GenericRecord, GenericRecord> record) {
-            long windowStart = (record.timestamp() / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
+            long windowStart = calculateWindowStartTime(record.timestamp());
 
             ValueTimestampHeaders<GenericRecord> fetched = store.fetch(record.key(), windowStart);
             if (fetched != null) {
@@ -1476,6 +1476,8 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
                 }
             }
         }
+        assertTrue(results.size() <= expectedCount,
+            "Expected " + expectedCount + " records but got " + results.size());
         return results;
     }
 
@@ -1588,6 +1590,10 @@ public class TimestampedWindowStoreWithHeadersIntegrationTest extends ClusterTes
             }
         }
         return results;
+    }
+
+    private static long calculateWindowStartTime(long timestamp) {
+        return (timestamp / WINDOW_SIZE.toMillis()) * WINDOW_SIZE.toMillis();
     }
 
     /**
