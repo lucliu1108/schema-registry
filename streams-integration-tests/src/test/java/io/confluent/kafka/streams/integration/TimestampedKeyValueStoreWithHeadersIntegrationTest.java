@@ -1373,6 +1373,8 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
                 }
             }
         }
+        assertTrue(results.size() <= expectedCount,
+            "Expected " + expectedCount + " records but got " + results.size());
         return results;
     }
 
