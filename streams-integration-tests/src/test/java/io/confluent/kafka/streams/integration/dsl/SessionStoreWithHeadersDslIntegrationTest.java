@@ -264,10 +264,8 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
             }
         }
 
-        // Check changelog BEFORE closing streams
-//        System.out.println("BEFORE close - Count test params: cachingEnabled=" + cachingEnabled + ", graceEnabled=" + graceEnabled + ", testId=" + testId);
+
         List<ConsumerRecord<byte[], byte[]>> beforeClose = consumeRawChangelog(changelog, "before-close-" + testId, 20);
-//        System.out.println("BEFORE close: got " + beforeClose.size() + " records");
         for (int i = 0; i < beforeClose.size(); i++) {
             ConsumerRecord<byte[], byte[]> r = beforeClose.get(i);
             byte[] keyBytes = r.key();
@@ -277,14 +275,11 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
                 bb.position(keyLen - 16);
                 long endTime = bb.getLong();
                 long startTime = bb.getLong();
-                System.out.println("  BEFORE [" + i + "] session [" + (startTime - baseTime) + ", " + (endTime - baseTime) + "], value=" + (r.value() == null ? "TOMBSTONE" : "non-null") + ", offset=" + r.offset());
             }
         }
 
         closeStreams(streams);
         Thread.sleep(2000);
-
-        System.out.println("AFTER close - Count test params: cachingEnabled=" + cachingEnabled + ", graceEnabled=" + graceEnabled + ", testId=" + testId + ", changelog=" + changelog);
         // 1. kafka: t=0 creates [0,0], t=5000 merges to [0,5000]
         // 2. kafka: t=20000 creates [20000,20000]
         // 3. streams: t=30000 creates [30000,30000], t=33000 merges to [30000,33000]
@@ -309,23 +304,6 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
         //   Cached: +2, Uncached: +2
         int expectedMinRecords = cachingEnabled ? (graceEnabled ? 5 : 3) : (graceEnabled ? 9 : 7);
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRawChangelog(changelog, "session-cg-" + testId + "-" + System.currentTimeMillis(), expectedMinRecords + 5);
-
-//        System.out.println("Count test (" + (cachingEnabled ? "cached" : "uncached") + ", " + (graceEnabled ? "grace" : "nograce") + "): got " + changelogRecords.size() + " changelog records, expected >= " + expectedMinRecords);
-//        for (int i = 0; i < changelogRecords.size(); i++) {
-//            ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
-//            // Decode session key: format is recordKey + endTime (8 bytes) + startTime (8 bytes)
-//            byte[] keyBytes = r.key();
-//            int keyLen = keyBytes.length;
-//            if (keyLen >= 16) {
-//                java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(keyBytes);
-//                bb.position(keyLen - 16);
-//                long endTime = bb.getLong();
-//                long startTime = bb.getLong();
-//                System.out.println("  [" + i + "] session [" + (startTime - baseTime) + ", " + (endTime - baseTime) + "], value=" + (r.value() == null ? "null(tombstone)" : "non-null") + ", offset=" + r.offset());
-//            } else {
-//                System.out.println("  [" + i + "] value=" + (r.value() == null ? "null(tombstone)" : "non-null") + ", offset=" + r.offset());
-//            }
-//        }
 
         assertTrue(changelogRecords.size() >= expectedMinRecords,
             "Expected at least " + expectedMinRecords + " changelog records but got " + changelogRecords.size());
@@ -515,12 +493,6 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
         //   Cached: +2, Uncached: +2
         int expectedMinRecords = cachingEnabled ? (graceEnabled ? 4 : 2) : (graceEnabled ? 8 : 6);
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRawChangelog(changelog, "session-reduce-cg-" + testId, expectedMinRecords + 5);
-
-        System.out.println("Reduce test (" + (cachingEnabled ? "cached" : "uncached") + ", " + (graceEnabled ? "grace" : "nograce") + "): got " + changelogRecords.size() + " changelog records");
-        for (int i = 0; i < changelogRecords.size(); i++) {
-            ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
-            System.out.println("  [" + i + "] value=" + (r.value() == null ? "null(tombstone)" : "non-null") + ", offset=" + r.offset());
-        }
 
         assertTrue(changelogRecords.size() >= expectedMinRecords,
             "Expected at least " + expectedMinRecords + " changelog records but got " + changelogRecords.size());
@@ -747,12 +719,6 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
         //   Cached: +2, Uncached: +2
         int expectedMinRecords = cachingEnabled ? (graceEnabled ? 4 : 2) : (graceEnabled ? 10 : 8);
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRawChangelog(changelog, "session-agg-cg-" + testId, expectedMinRecords + 5);
-
-        System.out.println("Aggregate test (" + (cachingEnabled ? "cached" : "uncached") + ", " + (graceEnabled ? "grace" : "nograce") + "): got " + changelogRecords.size() + " changelog records");
-        for (int i = 0; i < changelogRecords.size(); i++) {
-            ConsumerRecord<byte[], byte[]> r = changelogRecords.get(i);
-            System.out.println("  [" + i + "] value=" + (r.value() == null ? "null(tombstone)" : "non-null") + ", offset=" + r.offset());
-        }
 
         assertTrue(changelogRecords.size() >= expectedMinRecords,
             "Expected at least " + expectedMinRecords + " changelog records but got " + changelogRecords.size());
@@ -1030,13 +996,6 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
             // First poll to trigger partition assignment
             for (ConsumerRecord<byte[], byte[]> r : consumer.poll(Duration.ofMillis(100))) {
                 results.add(r);
-            }
-
-            var partitions = consumer.assignment();
-            for (var partition : partitions) {
-                long beg = consumer.beginningOffsets(Collections.singleton(partition)).get(partition);
-                long end = consumer.endOffsets(Collections.singleton(partition)).get(partition);
-                System.out.println("  Partition " + partition.partition() + ": beginning=" + beg + ", end=" + end + ", total=" + (end - beg));
             }
 
             long end = System.currentTimeMillis() + 15000;
