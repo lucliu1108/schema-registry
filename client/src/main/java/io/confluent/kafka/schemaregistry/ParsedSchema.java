@@ -194,7 +194,13 @@ public interface ParsedSchema {
   default ParsedSchema copy(Map<SchemaEntity, Set<String>> tagsToAdd,
                             Map<SchemaEntity, Set<String>> tagsToRemove,
                             boolean addFirst) {
-    throw new UnsupportedOperationException();
+    // Implementations of this interface should override this with a more efficient implementation
+    if (addFirst) {
+      return copy(tagsToAdd, tagsToRemove);
+    } else {
+      ParsedSchema schema = copy(Collections.emptyMap(), tagsToRemove);
+      return schema.copy(tagsToAdd, Collections.emptyMap());
+    }
   }
 
   /**
