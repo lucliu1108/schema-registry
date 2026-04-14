@@ -128,7 +128,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.sessionStoreBuilderWithHeaders(
+                Stores.sessionStoreWithHeadersBuilder(
                     Stores.inMemorySessionStore(STORE_NAME, Duration.ofMinutes(30)),
                     keySerde,
                     valueSerde))
@@ -545,7 +545,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.sessionStoreBuilderWithHeaders(
+                Stores.sessionStoreWithHeadersBuilder(
                     Stores.persistentSessionStoreWithHeaders(iqv1StoreName, Duration.ofMinutes(30)),
                     keySerde,
                     valueSerde))
@@ -1304,6 +1304,8 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
                 }
             }
         }
+        assertTrue(results.size() <= expectedCount,
+            "Expected " + expectedCount + " records but got " + results.size());
         return results;
     }
 
@@ -1394,7 +1396,7 @@ public class SessionStoreWithHeadersIntegrationTest extends ClusterTestHarness {
         StreamsBuilder builder = new StreamsBuilder();
         builder
             .addStateStore(
-                Stores.sessionStoreBuilderWithHeaders(
+                Stores.sessionStoreWithHeadersBuilder(
                     Stores.persistentSessionStoreWithHeaders(storeName, Duration.ofMinutes(30)),
                     keySerde,
                     valueSerde))
