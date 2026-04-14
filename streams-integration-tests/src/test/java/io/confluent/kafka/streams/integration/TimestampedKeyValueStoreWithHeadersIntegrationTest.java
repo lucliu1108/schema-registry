@@ -795,6 +795,25 @@ public class TimestampedKeyValueStoreWithHeadersIntegrationTest extends ClusterT
             assertTrue(tombstoneCount >= 4,
                 "Should have at least 4 tombstone records (PUT_NULL word-1, PUT_NULL word-99, PUT_NULL word-3, DELETE word-4)");
 
+            // Verify which keys have been deleted
+            KafkaAvroDeserializer keyDeserializer = new KafkaAvroDeserializer();
+            Map<String, Object> deserializerConfig = new HashMap<>();
+            deserializerConfig.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG,
+                restApp.restConnect);
+            keyDeserializer.configure(deserializerConfig, true);
+            List<String> deletedKeys = new ArrayList<>();
+            for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+                if (record.value() == null) {
+                    GenericRecord key = (GenericRecord) keyDeserializer.deserialize(
+                        changelogTopic, record.headers(), record.key());
+                    deletedKeys.add(key.get("word").toString());
+                }
+            }
+            assertTrue(deletedKeys.containsAll(
+                Arrays.asList("word-1", "word-99", "word-3", "word-4")),
+                "Deleted keys should include word-1, word-99, word-3, word-4 but got: "
+                    + deletedKeys);
+
         } finally {
             closeStreams(streams);
         }
