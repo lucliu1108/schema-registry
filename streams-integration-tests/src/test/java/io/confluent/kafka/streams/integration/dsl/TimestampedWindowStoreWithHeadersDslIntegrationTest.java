@@ -865,8 +865,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
 
         List<ConsumerRecord<byte[], byte[]>> outputRecords = new ArrayList<>();
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps,
-                ByteArrayDeserializer.class.newInstance(),
-                ByteArrayDeserializer.class.newInstance())) {
+            ByteArrayDeserializer.class.newInstance(),
+            ByteArrayDeserializer.class.newInstance())) {
             consumer.subscribe(Collections.singletonList(outputTopic));
             ConsumerRecords<byte[], byte[]> records = consumer.poll(java.time.Duration.ofSeconds(3));
             records.forEach(outputRecords::add);
@@ -888,8 +888,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         Properties consumerProps2 = createConsumerProps("suppress-output-cg2-" + testId);
         consumerProps2.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps2,
-                ByteArrayDeserializer.class.newInstance(),
-                ByteArrayDeserializer.class.newInstance())) {
+            ByteArrayDeserializer.class.newInstance(),
+            ByteArrayDeserializer.class.newInstance())) {
             consumer.subscribe(Collections.singletonList(outputTopic));
             ConsumerRecords<byte[], byte[]> records = consumer.poll(java.time.Duration.ofSeconds(5));
             records.forEach(outputRecords::add);
@@ -915,11 +915,31 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             assertKeySchemaIdHeader(result.value.headers(), "IQv1 suppressed store");
         }
 
+        // Test null value handling
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            // Send null value for "kafka" key - should be skipped, not counted
+            producer.send(new ProducerRecord<>(inputTopic, 0, Long.valueOf(baseTime + 20000), createKey("nullvalue"),  createTextLine("null value"))).get();
+            // Send normal value for "streams" key
+            producer.send(new ProducerRecord<>(inputTopic, 0, Long.valueOf(baseTime + 24000), createKey("nullvalue"), (GenericRecord) null)).get();
+            producer.flush();
+        }
+
+        Thread.sleep(2000);
+
+        // Re-fetch store
+        store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("nullvalue"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "Should find nullvalue in store");
+            KeyValue<Long, ValueTimestampHeaders<Long>> result = it.next();
+            assertEquals(2L, result.value.value(), "nullvalue count should be 1 (null value should be counted as an event, not skipped)");
+            assertKeySchemaIdHeader(result.value.headers(), "IQv1 null value handling in suppressed store");
+        }
+
         closeStreams(streams);
 
         // Verify changelog headers
         String changelog = "suppress-test" + suffix + "-" + storeName + "-changelog";
-        int expectedMinRecords = cachingEnabled ? 2 : 3; // kafka updates + other
+        int expectedMinRecords = cachingEnabled ? 3 : 5; // kafka updates + other
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRawChangelog(changelog, "suppress-changelog-cg-" + testId, expectedMinRecords);
 
         assertTrue(changelogRecords.size() >= expectedMinRecords,
