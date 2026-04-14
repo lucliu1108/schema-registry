@@ -401,6 +401,16 @@
             <!--children-->
             <dependency>
                 <groupId>io.confluent</groupId>
+                <artifactId>kafka-schema-types</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.confluent</groupId>
+                <artifactId>kafka-avro-types</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.confluent</groupId>
                 <artifactId>kafka-avro-serializer</artifactId>
                 <version>${io.confluent.schema-registry.version}</version>
             </dependency>
