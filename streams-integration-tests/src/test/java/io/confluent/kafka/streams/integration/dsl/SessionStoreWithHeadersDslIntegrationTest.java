@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Confluent Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package io.confluent.kafka.streams.integration.dsl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -105,12 +121,6 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
         GenericAvroSerde valueSerde = createValueSerde();
-
-        GenericAvroSerde countSerde = new GenericAvroSerde();
-        Map<String, Object> config = new HashMap<>();
-        config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        config.put(AbstractKafkaSchemaSerDeConfig.VALUE_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
-        countSerde.configure(config, false);
 
         StreamsBuilder builder = new StreamsBuilder();
         Duration inactivityGap = Duration.ofSeconds(10);
@@ -267,15 +277,6 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
 
         List<ConsumerRecord<byte[], byte[]>> beforeClose = consumeRawChangelog(changelog, "before-close-" + testId, 20);
         for (int i = 0; i < beforeClose.size(); i++) {
-            ConsumerRecord<byte[], byte[]> r = beforeClose.get(i);
-            byte[] keyBytes = r.key();
-            int keyLen = keyBytes.length;
-            if (keyLen >= 16) {
-                java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(keyBytes);
-                bb.position(keyLen - 16);
-                long endTime = bb.getLong();
-                long startTime = bb.getLong();
-            }
         }
 
         closeStreams(streams);
@@ -810,11 +811,11 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
         // Verify all should be suppressed
         Properties consumerProps = createConsumerProps("suppress-output-cg-" + testId);
         consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        consumerProps.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
 
         List<ConsumerRecord<byte[], byte[]>> outputRecords = new ArrayList<>();
-        try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps,
-                ByteArrayDeserializer.class.newInstance(),
-                ByteArrayDeserializer.class.newInstance())) {
+        try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps)) {
             consumer.subscribe(Collections.singletonList(outputTopic));
             ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofSeconds(3));
             records.forEach(outputRecords::add);
@@ -839,9 +840,9 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
         outputRecords.clear();
         Properties consumerProps2 = createConsumerProps("suppress-output-cg2-" + testId);
         consumerProps2.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps2,
-                ByteArrayDeserializer.class.newInstance(),
-                ByteArrayDeserializer.class.newInstance())) {
+        consumerProps2.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        consumerProps2.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ByteArrayDeserializer.class.getName());
+        try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps2)) {
             consumer.subscribe(Collections.singletonList(outputTopic));
             long end = System.currentTimeMillis() + 10000;
             while (outputRecords.size() < 2 && System.currentTimeMillis() < end) {
@@ -1007,6 +1008,8 @@ public class SessionStoreWithHeadersDslIntegrationTest extends ClusterTestHarnes
     }
 
     private void closeStreams(KafkaStreams streams) {
-        if (streams != null) streams.close();
+        if (streams != null) {
+            streams.close(Duration.ofSeconds(10));
+        }
     }
 }
