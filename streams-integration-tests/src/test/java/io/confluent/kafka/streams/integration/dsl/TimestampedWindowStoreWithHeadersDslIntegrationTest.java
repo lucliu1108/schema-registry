@@ -755,14 +755,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         Properties consumerProps = createConsumerProps("join-output-cg-" + testId);
         consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
+        final int expectedOutputRecordCount = 2;
+        final Instant pollDeadline = Instant.now().plus(Duration.ofSeconds(10));
         List<ConsumerRecord<GenericRecord, GenericRecord>> outputRecords = new ArrayList<>();
         try (KafkaConsumer<GenericRecord, GenericRecord> consumer = new KafkaConsumer<>(consumerProps, keySerde.deserializer(), aggSerde.deserializer())) {
             consumer.subscribe(Collections.singletonList(outputTopic));
-            ConsumerRecords<GenericRecord, GenericRecord> records = consumer.poll(java.time.Duration.ofSeconds(10));
-            records.forEach(outputRecords::add);
+            while (outputRecords.size() < expectedOutputRecordCount && Instant.now().isBefore(pollDeadline)) {
+                ConsumerRecords<GenericRecord, GenericRecord> records = consumer.poll(Duration.ofMillis(500));
+                records.forEach(outputRecords::add);
+            }
         }
 
-        assertEquals(2, outputRecords.size(), "Should have 2 join results (kafka and streams)");
+        assertEquals(expectedOutputRecordCount, outputRecords.size(), "Should have 2 join results (kafka and streams)");
 
         // Collect results by key for verification
         Map<String, ConsumerRecord<GenericRecord, GenericRecord>> resultsByKey = new HashMap<>();
@@ -900,15 +904,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         outputRecords.clear();
         Properties consumerProps2 = createConsumerProps("suppress-output-cg2-" + testId);
         consumerProps2.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        final Instant suppressPollDeadline = Instant.now().plus(Duration.ofSeconds(10));
         try (KafkaConsumer<byte[], byte[]> consumer = new KafkaConsumer<>(consumerProps2,
             new ByteArrayDeserializer(),
             new ByteArrayDeserializer())) {
             consumer.subscribe(Collections.singletonList(outputTopic));
-            ConsumerRecords<byte[], byte[]> records = consumer.poll(java.time.Duration.ofSeconds(5));
-            records.forEach(outputRecords::add);
+            while (outputRecords.size() < 1 && Instant.now().isBefore(suppressPollDeadline)) {
+                ConsumerRecords<byte[], byte[]> records = consumer.poll(Duration.ofMillis(500));
+                records.forEach(outputRecords::add);
+            }
         }
 
-        assertEquals(1, outputRecords.size(), "Should have 2 suppressed result released, got " + outputRecords.size());
+        assertEquals(1, outputRecords.size(), "Should have 1 suppressed result released, got " + outputRecords.size());
 
         // Verify headers in suppressed output
         for (ConsumerRecord<byte[], byte[]> record : outputRecords) {
