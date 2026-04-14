@@ -188,14 +188,14 @@ public interface ParsedSchema {
    * @param tagsToRemove map of tags to remove from the schema record or field, where the key is
    *                     the entity and the value is the set of tags. If the tag does not exist,
    *                     do nothing.
-   * @param addFirst whether to add tags before removing tags.
+   * @param addBeforeRemove whether to add tags before removing tags.
    * @return a copy of this schema, but with the given tags
    */
   default ParsedSchema copy(Map<SchemaEntity, Set<String>> tagsToAdd,
                             Map<SchemaEntity, Set<String>> tagsToRemove,
-                            boolean addFirst) {
+                            boolean addBeforeRemove) {
     // Implementations of this interface should override this with a more efficient implementation
-    if (addFirst) {
+    if (addBeforeRemove) {
       return copy(tagsToAdd, tagsToRemove);
     } else {
       ParsedSchema schema = copy(Collections.emptyMap(), tagsToRemove);

@@ -645,10 +645,10 @@ public class ProtobufSchema implements ParsedSchema {
   @Override
   public ParsedSchema copy(Map<SchemaEntity, Set<String>> tagsToAdd,
                            Map<SchemaEntity, Set<String>> tagsToRemove,
-                           boolean addFirst) {
+                           boolean addBeforeRemove) {
     ProtobufSchema schemaCopy = this.copy();
     JsonNode original = jsonMapper.valueToTree(schemaCopy.rawSchema());
-    modifySchemaTags(schemaCopy.rawSchema(), original, tagsToAdd, tagsToRemove, addFirst);
+    modifySchemaTags(schemaCopy.rawSchema(), original, tagsToAdd, tagsToRemove, addBeforeRemove);
     try {
       ProtoFileElement newFileElement = jsonToFile(original);
       return new ProtobufSchema(newFileElement.toSchema(),
@@ -3035,7 +3035,7 @@ public class ProtobufSchema implements ParsedSchema {
   private void modifySchemaTags(ProtoFileElement original, JsonNode node,
                                 Map<SchemaEntity, Set<String>> tagsToAddMap,
                                 Map<SchemaEntity, Set<String>> tagsToRemoveMap,
-                                boolean addFirst) {
+                                boolean addBeforeRemove) {
     Set<SchemaEntity> entityToModify = new LinkedHashSet<>(tagsToAddMap.keySet());
     entityToModify.addAll(tagsToRemoveMap.keySet());
     Map<Object, OptionElement> optionCache = new HashMap<>();
@@ -3075,7 +3075,8 @@ public class ProtobufSchema implements ParsedSchema {
       Set<String> tagsToAdd = tagsToAddMap.get(entity);
       Set<String> tagsToRemove = tagsToRemoveMap.get(entity);
 
-      if (addFirst) {
+      if (addBeforeRemove) {
+        // Add tags to allOptions before merging so they are folded in by mergeOptions()
         if (tagsToAdd != null && !tagsToAdd.isEmpty()) {
           OptionElement newOption = new OptionElement(metaName, Kind.OPTION,
               new OptionElement(TAGS_FIELD, Kind.LIST, new ArrayList<>(tagsToAdd), false), true);
@@ -3084,6 +3085,8 @@ public class ProtobufSchema implements ParsedSchema {
         mergedOptions = mergeOptions(allOptions);
         removeTags(mergedOptions, metaName, tagsToRemove);
       } else {
+        // Merge existing options first, remove, then add directly into the merged result
+        // via addTags() since mergeOptions() has already been called
         mergedOptions = mergeOptions(allOptions);
         removeTags(mergedOptions, metaName, tagsToRemove);
         if (tagsToAdd != null && !tagsToAdd.isEmpty()) {

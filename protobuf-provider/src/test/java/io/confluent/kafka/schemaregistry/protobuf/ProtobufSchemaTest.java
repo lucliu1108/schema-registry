@@ -2764,7 +2764,7 @@ public class ProtobufSchemaTest {
   }
 
   @Test
-  public void testAddFirstTags() {
+  public void testAddBeforeRemoveTags() {
     String schemaString = "syntax = \"proto3\";\n" +
         "package com.example.mynamespace;\n" +
         "\n" +
@@ -2787,15 +2787,15 @@ public class ProtobufSchemaTest {
     Map<SchemaEntity, Set<String>> tagsToRemove = new HashMap<>();
     tagsToRemove.put(fieldEntity, ImmutableSet.of("OVERLAP", "EXISTING"));
 
-    // addFirst=true: add then remove, so OVERLAP is removed (remove wins)
+    // addBeforeRemove=true: add then remove, so OVERLAP is removed (remove wins)
     ParsedSchema resultAddFirst = new ProtobufSchema(schemaString)
         .copy(tagsToAdd, tagsToRemove, true);
-    Map<SchemaEntity, Set<String>> addFirstTags = resultAddFirst.inlineTaggedEntities();
+    Map<SchemaEntity, Set<String>> addBeforeRemoveTags = resultAddFirst.inlineTaggedEntities();
     SchemaEntity normalizedField = new SchemaEntity("SampleRecord.my_field1",
         SchemaEntity.EntityType.SR_FIELD);
-    assertEquals(ImmutableSet.of("NEW"), addFirstTags.get(normalizedField));
+    assertEquals(ImmutableSet.of("NEW"), addBeforeRemoveTags.get(normalizedField));
 
-    // addFirst=false: remove then add, so OVERLAP is added (add wins)
+    // addBeforeRemove=false: remove then add, so OVERLAP is added (add wins)
     ParsedSchema resultRemoveFirst = new ProtobufSchema(schemaString)
         .copy(tagsToAdd, tagsToRemove, false);
     Map<SchemaEntity, Set<String>> removeFirstTags = resultRemoveFirst.inlineTaggedEntities();

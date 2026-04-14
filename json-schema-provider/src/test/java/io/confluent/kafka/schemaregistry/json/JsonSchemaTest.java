@@ -801,7 +801,7 @@ public class JsonSchemaTest {
   }
 
   @Test
-  public void testAddFirstTags() {
+  public void testAddBeforeRemoveTags() {
     String schemaString = "{\n" +
       "  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n" +
       "  \"title\": \"SampleRecord\",\n" +
@@ -824,13 +824,13 @@ public class JsonSchemaTest {
     Map<SchemaEntity, Set<String>> tagsToRemove = new HashMap<>();
     tagsToRemove.put(fieldEntity, ImmutableSet.of("OVERLAP", "EXISTING"));
 
-    // addFirst=true: add then remove, so OVERLAP is removed (remove wins)
+    // addBeforeRemove=true: add then remove, so OVERLAP is removed (remove wins)
     ParsedSchema resultAddFirst = schema.copy(tagsToAdd, tagsToRemove, true);
     Map<SchemaEntity, Set<String>> expectedAddFirst = new HashMap<>();
     expectedAddFirst.put(fieldEntity, ImmutableSet.of("NEW"));
     assertEquals(expectedAddFirst, resultAddFirst.inlineTaggedEntities());
 
-    // addFirst=false: remove then add, so OVERLAP is added (add wins)
+    // addBeforeRemove=false: remove then add, so OVERLAP is added (add wins)
     ParsedSchema resultRemoveFirst = schema.copy(tagsToAdd, tagsToRemove, false);
     Map<SchemaEntity, Set<String>> expectedRemoveFirst = new HashMap<>();
     expectedRemoveFirst.put(fieldEntity, ImmutableSet.of("OVERLAP", "NEW"));
