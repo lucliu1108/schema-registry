@@ -561,6 +561,9 @@ public class AvroSchemaUtils {
         } else {
           build(env, s.getValueType(), o.append(",\"values\":"));
         }
+        if (lt != null) {
+          setLogicalProps(o, lt);
+        }
         setSimpleProps(o, s.getObjectProps());
         return o.append("}");
 
