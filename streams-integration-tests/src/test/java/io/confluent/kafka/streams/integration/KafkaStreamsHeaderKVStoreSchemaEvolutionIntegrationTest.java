@@ -993,7 +993,7 @@ public class KafkaStreamsHeaderKVStoreSchemaEvolutionIntegrationTest extends Clu
    * Test tombstone with a key that should delete the corresponding entry that shares the same bytes representation.
    */
   @Test
-  public void shouldDoSomethingOnNullValueField() throws Exception {
+  public void shouldSwitchToDefaultValueOnNullField() throws Exception {
     String inputTopic = "null-value-field-evolution-input";
     String appId = "null-value-field-evolution-test-" + System.currentTimeMillis();
 
