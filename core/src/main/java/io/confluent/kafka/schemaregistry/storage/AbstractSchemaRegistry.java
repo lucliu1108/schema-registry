@@ -742,7 +742,7 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
       SchemaRegistryKey key1 = keyCreator.apply(start, MIN_VERSION);
       SchemaRegistryKey key2 = keyCreator.apply(end, MAX_VERSION);
       return filter(transform(store.getAll(key1, key2), v -> {
-        if (v instanceof SchemaValue) {
+        if (v instanceof SchemaValue && metadataEncoder != null) {
           try {
             metadataEncoder.decodeMetadata(((SchemaValue) v));
           } catch (SchemaRegistryStoreException e) {
@@ -1661,7 +1661,9 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
 
   @Override
   public Schema toSchemaEntity(SchemaValue schemaValue) throws SchemaRegistryStoreException {
-    metadataEncoder.decodeMetadata(schemaValue);
+    if (metadataEncoder != null) {
+      metadataEncoder.decodeMetadata(schemaValue);
+    }
     return schemaValue.toSchemaEntity();
   }
 
