@@ -62,7 +62,6 @@ import java.util.Set;
 import org.everit.json.schema.ArraySchema;
 import org.everit.json.schema.BooleanSchema;
 import org.everit.json.schema.CombinedSchema;
-import org.everit.json.schema.CombinedSchema.ValidationCriterion;
 import org.everit.json.schema.ConditionalSchema;
 import org.everit.json.schema.ConstSchema;
 import org.everit.json.schema.EmptySchema;
@@ -594,7 +593,7 @@ public class JsonSchema implements ParsedSchema {
     }
     if (schema instanceof CombinedSchema) {
       CombinedSchema combinedSchema = (CombinedSchema) schema;
-      ValidationCriterion criterion = combinedSchema.getCriterion();
+      CombinedSchema.ValidationCriterion criterion = combinedSchema.getCriterion();
       Collection<Schema> subschemas = combinedSchema.getSubschemas();
       if (criterion.equals(CombinedSchema.ALL_CRITERION)) {
         for (Schema subschema : subschemas) {
