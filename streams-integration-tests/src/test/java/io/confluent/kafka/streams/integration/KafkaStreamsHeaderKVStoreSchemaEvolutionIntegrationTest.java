@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.confluent.kafka.schemaregistry.ClusterTestHarness;
 import io.confluent.kafka.schemaregistry.client.rest.exceptions.RestClientException;
 import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
+import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaAvroSerializer;
 import io.confluent.kafka.serializers.schema.id.HeaderSchemaIdSerializer;
 import io.confluent.kafka.serializers.schema.id.SchemaId;
@@ -182,6 +183,19 @@ public class KafkaStreamsHeaderKVStoreSchemaEvolutionIntegrationTest extends Clu
           + "]"
           + "}");
 
+  private static final Schema VALUE_SCHEMA_V3_NO_DEFAULT = new Schema.Parser().parse(
+      "{"
+          + "\"type\":\"record\","
+          + "\"name\":\"SensorReading\","
+          + "\"namespace\":\"io.confluent.kafka.streams.integration\","
+          + "\"fields\":["
+          + "  {\"name\":\"temperature\",\"type\":\"double\"},"
+          + "  {\"name\":\"timestamp\",\"type\":\"long\"},"
+          + "  {\"name\":\"humidity\",\"type\":\"double\"},"
+          + "  {\"name\":\"pressure\",\"type\":\"double\"}"
+          + "]"
+          + "}");
+
   // Incompatible: changes `temperature` from double → string.
   // Under BACKWARD compatibility, SR should reject this schema change.
   private static final Schema VALUE_SCHEMA_INCOMPATIBLE = new Schema.Parser().parse(
@@ -284,6 +298,29 @@ public class KafkaStreamsHeaderKVStoreSchemaEvolutionIntegrationTest extends Clu
           "humidity should not be present — entry is still v1 bytes, SR evolution alone adds no field");
       assertSchemaIdHeaders(sensor2BeforeV2.headers(), "sensor2BeforeV2");
 
+      // Re-read the same v1 bytes off the input topic with v2 reader schema,
+      // Avro schema resolution should fill humidity with the v2 default (0.0).
+      List<ConsumerRecord<byte[], byte[]>> rawV1Records = consumeRawChangelog(
+          inputTopic, "v2-reader-" + System.currentTimeMillis(), 2);
+      assertEquals(2, rawV1Records.size(), "should have consumed both v1-written input records");
+      KafkaAvroDeserializer v2Reader = new KafkaAvroDeserializer();
+      Map<String, Object> v2ReaderConfig = new HashMap<>();
+      v2ReaderConfig.put(
+          AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
+      v2Reader.configure(v2ReaderConfig, false);
+      try {
+        for (ConsumerRecord<byte[], byte[]> r : rawV1Records) {
+          GenericRecord asV2 = (GenericRecord) v2Reader.deserialize(
+              inputTopic, r.headers(), r.value(), VALUE_SCHEMA_V2);
+          assertNotNull(asV2, "v1 bytes should be decodable with v2 reader schema");
+          assertEquals(VALUE_SCHEMA_V2, asV2.getSchema(), "projection should be v2-shaped");
+          assertEquals(0.0, asV2.get("humidity"),
+              "humidity should be filled in from the v2 default (0.0) when reading v1 bytes as v2");
+        }
+      } finally {
+        v2Reader.close();
+      }
+
       // --- Test 2: Produce records with evolved value schema v2, should override the old value with the same key ---
       GenericRecord key3 = new GenericRecordBuilder(KEY_SCHEMA_V1).set("sensorId", "sensor-v2").build();
       try (KafkaProducer<GenericRecord, GenericRecord> producer = createHeaderProducer()) {
@@ -365,17 +402,17 @@ public class KafkaStreamsHeaderKVStoreSchemaEvolutionIntegrationTest extends Clu
       assertEquals(4, countStoreEntries(store), "Store should contain 4 entries after v3 write");
 
       // --- Test 4: v4 removes `humidity` field ---
-      GenericRecord keyV4 = new GenericRecordBuilder(KEY_SCHEMA_V1).set("sensorId", "sensor-v4").build();
+      GenericRecord key5 = new GenericRecordBuilder(KEY_SCHEMA_V1).set("sensorId", "sensor-v4").build();
       try (KafkaProducer<GenericRecord, GenericRecord> producer = createHeaderProducer()) {
         GenericRecord valV4 = new GenericRecordBuilder(VALUE_SCHEMA_V4_NO_HUMIDITY)
             .set("temperature", 30.0).set("timestamp", 6000L).set("pressure", 1005.0).build();
-        producer.send(new ProducerRecord<>(inputTopic, keyV4, valV4)).get();
+        producer.send(new ProducerRecord<>(inputTopic, key5, valV4)).get();
         producer.flush();
       }
       waitForStoreToContainKeys(streams, 5);
 
       // sensor-v4 has temperature + pressure but no humidity
-      ValueTimestampHeaders<GenericRecord> resultV4 = store.get(keyV4);
+      ValueTimestampHeaders<GenericRecord> resultV4 = store.get(key5);
       assertNotNull(resultV4, "sensor-v4 should be in the store");
       assertEquals(30.0, resultV4.value().get("temperature"));
       assertEquals(1005.0, resultV4.value().get("pressure"));
@@ -450,9 +487,10 @@ public class KafkaStreamsHeaderKVStoreSchemaEvolutionIntegrationTest extends Clu
   }
 
   /**
-   * Producing the same logical key under an evolved key schema (v1 → v2, adding a field
-   * with default) creates a second store row: the two schemas produce different bytes, so
-   * v1 and v2 lookups address different rows and {@code all()} yields both.
+   * Producing a record with the same {@code sensorId} under an evolved key schema
+   * (v1 → v2, adding a field with default) creates a second store row: v2's extra defaulted
+   * field causes the key to serialize to different bytes than v1, so v1 and v2 lookups
+   * address different rows and {@code all()} yields both.
    */
   @Test
   public void shouldStoreSameLogicalKeyAsTwoRowsAfterKeySchemaEvolution() throws Exception {
@@ -1028,11 +1066,18 @@ public class KafkaStreamsHeaderKVStoreSchemaEvolutionIntegrationTest extends Clu
             "producing null for a non-nullable double field should fail Avro serialization");
       }
 
+      // overwrite with a record that omits `pressure` and `humidity`, using a schema where
+      // those two fields have no default value
+      GenericRecord badVal2 = new GenericData.Record(VALUE_SCHEMA_V3_NO_DEFAULT);
+      badVal2.put("temperature", 30.0);
+      try (KafkaProducer<GenericRecord, GenericRecord> producer = createHeaderProducer()) {
+        assertThrows(SerializationException.class, () ->
+                producer.send(new ProducerRecord<>(inputTopic, key2V1, badVal2)),
+            "not specifying value for a non-nullable double field should fail Avro serialization");
+      }
+
       // send a record with null for a non-nullable field but with default value.
       try (KafkaProducer<GenericRecord, GenericRecord> producer = createHeaderProducer()) {
-        // send a normal record with v3 value schema that has pressure and humidity fields.
-        producer.send(new ProducerRecord<>(inputTopic, keyV1,
-            new GenericRecordBuilder(VALUE_SCHEMA_V3).set("temperature", 35.5).set("timestamp", 2000L).set("pressure", 1015).set("humidity", 50).build())).get();
         // send a v4 value schema record with no pressure field, with a default humidity field.
         producer.send(new ProducerRecord<>(inputTopic, keyV2,
             new GenericRecordBuilder(VALUE_SCHEMA_V4_NO_HUMIDITY).set("temperature", 45.0).set("timestamp", 2500L).build())).get();
