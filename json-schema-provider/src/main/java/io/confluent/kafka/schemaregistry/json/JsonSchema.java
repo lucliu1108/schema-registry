@@ -295,26 +295,6 @@ public class JsonSchema implements ParsedSchema {
     }
   }
 
-  public JsonSchema(
-      Schema schemaObj,
-      Integer version,
-      List<SchemaReference> references,
-      Map<String, String> resolvedReferences
-  ) {
-    try {
-      this.jsonNode = schemaObj != null ? objectMapper.readTree(schemaObj.toString()) : null;
-      this.schemaObj = schemaObj;
-      this.version = version;
-      this.references = references;
-      this.resolvedReferences = resolvedReferences;
-      this.metadata = null;
-      this.ruleSet = null;
-      this.ignoreModernDialects = false;
-    } catch (IOException e) {
-      throw new IllegalArgumentException("Invalid JSON schema", e);
-    }
-  }
-
   private JsonSchema(
       JsonNode jsonNode,
       com.github.erosb.jsonsKema.Schema skemaObj,
@@ -490,6 +470,11 @@ public class JsonSchema implements ParsedSchema {
       String content = mergeDefBuckets(dep.getValue(), "definitions", "$defs");
       URI uri = new URI(dep.getKey());
       mappings.put(uri, content);
+      // Also register under the base-resolved absolute URI. json-sKema resolves a
+      // cross-document ref like `$ref: "external.json#/$defs/X"` against the document
+      // base (`mem://input`) before looking it up, producing
+      // `mem://input/external.json`. Without this entry, the relative form above
+      // wouldn't be matched and the ref would fail to resolve.
       mappings.put(base.resolve(dep.getKey()), content);
       if (!uri.isAbsolute() && !dep.getKey().startsWith(".")) {
         // For backward compatibility
