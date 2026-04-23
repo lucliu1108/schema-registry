@@ -248,6 +248,33 @@ public class JsonSchemaDefBridgeTest {
   }
 
   /**
+   * Cross-document fragment ref: a draft-2020-12 root with {@code $ref:
+   * "external.json#/$defs/X"} must resolve into the imported schema's {@code $defs} entry.
+   * Pins the {@code base.resolve(dep.getKey())} mapping in {@code loadLatestDraft} — without
+   * that registration, json-sKema would resolve the document part {@code external.json}
+   * against the document base ({@code mem://input}) into {@code mem://input/external.json},
+   * miss the un-resolved entry, and fail the lookup.
+   */
+  @Test
+  public void crossDocumentFragmentRef_resolvesViaBaseResolvedMapping() {
+    String external = "{"
+        + "\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+        + "\"type\":\"object\","
+        + "\"$defs\":{\"X\":{\"type\":\"integer\"}}"
+        + "}";
+    String root = "{"
+        + "\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+        + "\"type\":\"object\","
+        + "\"properties\":{\"item\":{\"$ref\":\"external.json#/$defs/X\"}}"
+        + "}";
+    SchemaReference ref = new SchemaReference("external.json", "external", 1);
+    JsonSchema schema = new JsonSchema(root, ImmutableList.of(ref),
+        ImmutableMap.of("external.json", external), null);
+    assertNotNull(schema.rawSchema());
+    schema.validate(true);
+  }
+
+  /**
    * Cross-draft: a draft-7 root imports a draft-2020-12 schema. The whole load is routed
    * through Everit (the root's draft picks the loader), but the bridge is still applied to the
    * imported content — so a body in {@code definitions} inside the import is reachable via

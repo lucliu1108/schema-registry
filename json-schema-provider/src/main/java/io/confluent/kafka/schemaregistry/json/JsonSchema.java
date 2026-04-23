@@ -463,10 +463,10 @@ public class JsonSchema implements ParsedSchema {
     Map<URI, String> mappings = new HashMap<>(getPrepopulatedMappings());
     URI base = URI.create(DEFAULT_BASE_URI);
     for (Map.Entry<String, String> dep : resolvedReferences.entrySet()) {
-      // Bridge top-level draft-7 `definitions` into `$defs` so json-sKema's
-      // JSON Pointer resolver can locate entries inside them. The original
-      // content is left untouched in resolvedReferences; only the in-memory
-      // copy passed to the loader is augmented.
+      // Bridge top-level `definitions` entries into `$defs` so json-sKema (which
+      // only walks `$defs`) can resolve a `$ref: "#/$defs/X"` regardless of which
+      // bucket the body lives in. The original content is left untouched in
+      // resolvedReferences; only the in-memory copy passed to the loader is augmented.
       String content = mergeDefBuckets(dep.getValue(), "definitions", "$defs");
       URI uri = new URI(dep.getKey());
       mappings.put(uri, content);
