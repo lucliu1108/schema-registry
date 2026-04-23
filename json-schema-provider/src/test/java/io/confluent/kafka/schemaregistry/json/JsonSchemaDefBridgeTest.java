@@ -247,6 +247,57 @@ public class JsonSchemaDefBridgeTest {
     schema.validate(true);
   }
 
+  /**
+   * Cross-draft: a draft-7 root imports a draft-2020-12 schema. The whole load is routed
+   * through Everit (the root's draft picks the loader), but the bridge is still applied to the
+   * imported content — so a body in {@code definitions} inside the import is reachable via
+   * {@code #/$defs/X}.
+   */
+  @Test
+  public void crossDraft_draft7Root_importsDraft2020Schema_resolves() {
+    String draft2020Import = "{"
+        + "\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+        + "\"type\":\"object\","
+        + "\"properties\":{\"x\":{\"$ref\":\"#/$defs/X\"}},"
+        + "\"definitions\":{\"X\":{\"type\":\"integer\"}}"
+        + "}";
+    String draft7Root = "{"
+        + "\"$schema\":\"http://json-schema.org/draft-07/schema#\","
+        + "\"type\":\"object\","
+        + "\"properties\":{\"item\":{\"$ref\":\"external.json\"}}"
+        + "}";
+    SchemaReference ref = new SchemaReference("external.json", "external", 1);
+    JsonSchema schema = new JsonSchema(draft7Root, ImmutableList.of(ref),
+        ImmutableMap.of("external.json", draft2020Import), null);
+    assertNotNull(schema.rawSchema());
+    schema.validate(true);
+  }
+
+  /**
+   * Cross-draft: a draft-2020-12 root imports a draft-7 schema. The whole load is routed
+   * through json-sKema, but the bridge is still applied to the imported content — so a body in
+   * {@code definitions} inside the import is reachable via {@code #/$defs/X}.
+   */
+  @Test
+  public void crossDraft_draft2020Root_importsDraft7Schema_resolves() {
+    String draft7Import = "{"
+        + "\"$schema\":\"http://json-schema.org/draft-07/schema#\","
+        + "\"type\":\"object\","
+        + "\"properties\":{\"x\":{\"$ref\":\"#/$defs/X\"}},"
+        + "\"definitions\":{\"X\":{\"type\":\"integer\"}}"
+        + "}";
+    String draft2020Root = "{"
+        + "\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+        + "\"type\":\"object\","
+        + "\"properties\":{\"item\":{\"$ref\":\"external.json\"}}"
+        + "}";
+    SchemaReference ref = new SchemaReference("external.json", "external", 1);
+    JsonSchema schema = new JsonSchema(draft2020Root, ImmutableList.of(ref),
+        ImmutableMap.of("external.json", draft7Import), null);
+    assertNotNull(schema.rawSchema());
+    schema.validate(true);
+  }
+
   // -----------------------------------------------------------------------------------------
   // Round-trip / no-mutation: bridging must not leak into the canonical form.
   // -----------------------------------------------------------------------------------------
