@@ -45,9 +45,11 @@ import io.confluent.kafka.schemaregistry.json.JsonSchemaProvider;
 import io.confluent.kafka.schemaregistry.protobuf.ProtobufSchemaProvider;
 import io.confluent.kafka.schemaregistry.client.security.SslFactory;
 import io.confluent.kafka.schemaregistry.exceptions.InvalidSchemaException;
+import io.confluent.kafka.schemaregistry.exceptions.InvalidVersionException;
 import io.confluent.kafka.schemaregistry.exceptions.SchemaRegistryException;
 import io.confluent.kafka.schemaregistry.metrics.MetricsContainer;
 import io.confluent.kafka.schemaregistry.rest.SchemaRegistryConfig;
+import io.confluent.kafka.schemaregistry.rest.exceptions.Errors;
 import io.confluent.kafka.schemaregistry.rest.VersionId;
 import io.confluent.kafka.schemaregistry.rest.extensions.SchemaRegistryResourceExtension;
 import io.confluent.kafka.schemaregistry.rest.handlers.CompositeUpdateRequestHandler;
@@ -57,6 +59,7 @@ import io.confluent.kafka.schemaregistry.storage.exceptions.StoreException;
 import io.confluent.kafka.schemaregistry.utils.QualifiedSubject;
 import io.confluent.rest.NamedURI;
 import io.confluent.rest.RestConfig;
+import java.util.Comparator;
 import java.util.HashSet;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.utils.Time;
@@ -571,6 +574,46 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
     }
   }
 
+  protected Schema validateDeleteSchemaVersion(String subject,
+                                                int version,
+                                                boolean permanentDelete)
+      throws SchemaRegistryException {
+    Schema schema = null;
+    // Retrieve and validate schema
+    VersionId versionId = new VersionId(version);
+    String errorMessage =
+        "Error while retrieving schema for subject "
+            + subject
+            + " with version "
+            + version
+            + " from the schema registry";
+    try {
+      if (schemaVersionExists(subject, versionId, true)) {
+        if (!permanentDelete
+            && !schemaVersionExists(subject,
+            versionId, false)) {
+          throw Errors.schemaVersionSoftDeletedException(subject, String.valueOf(version));
+        }
+      }
+      schema = get(subject, versionId.getVersionId(), true);
+      if (schema == null) {
+        if (!hasSubjects(subject, true)) {
+          throw Errors.subjectNotFoundException(subject);
+        } else {
+          throw Errors.versionNotFoundException(versionId.getVersionId());
+        }
+      }
+    } catch (SchemaRegistryStoreException e) {
+      log.debug(errorMessage, e);
+      throw Errors.storeException(errorMessage, e);
+    } catch (InvalidVersionException e) {
+      throw Errors.invalidVersionException(e.getMessage());
+    } catch (SchemaRegistryException e) {
+      throw Errors.schemaRegistryException(errorMessage, e);
+    }
+    return schema;
+  }
+
   private CloseableIterator<SchemaRegistryValue> allVersionsFromAllContexts(
           BiFunction<String, Integer, SchemaRegistryKey> keyCreator,
           String tenantPrefix, String unqualifiedSubjectOrPrefix, boolean isPrefix)
@@ -653,6 +696,7 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
       case DEFAULT -> !isDeleted;
       case INCLUDE_DELETED -> true;
       case DELETED_ONLY -> isDeleted;
+      case DELETED_AS_NEGATIVE -> true;
     };
   }
 
@@ -666,6 +710,9 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
         continue;
       }
       SchemaKey schemaKey = schemaValue.toKey();
+      if (filter == LookupFilter.DELETED_AS_NEGATIVE && schemaValue.isDeleted()) {
+        schemaKey = new SchemaKey(schemaKey.getSubject(), -schemaKey.getVersion());
+      }
       schemaList.add(schemaKey);
     }
     return schemaList;
@@ -1232,7 +1279,8 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
     try {
       return lookupCache.mode(subject, true, defaultMode);
     } catch (StoreException e) {
-      throw new SchemaRegistryStoreException("Failed to write new config value to the store", e);
+      throw new SchemaRegistryStoreException(
+          "Failed to get mode in scope for " + subject, e);
     }
   }
 
@@ -1241,7 +1289,7 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
     try {
       return lookupCache.mode(subject, false, defaultMode);
     } catch (StoreException e) {
-      throw new SchemaRegistryStoreException("Failed to write new config value to the store", e);
+      throw new SchemaRegistryStoreException("Failed to get mode for " + subject, e);
     }
   }
 
@@ -1288,7 +1336,28 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
     try {
       return lookupCache.config(subject, true, new Config(defaultCompatibilityLevel.name));
     } catch (StoreException e) {
-      throw new SchemaRegistryStoreException("Failed to write new config value to the store", e);
+      throw new SchemaRegistryStoreException(
+          "Failed to get config in scope for " + subject, e);
+    }
+  }
+
+  protected QualifiedSubject replaceAlias(String context, String subject) {
+    QualifiedSubject qs = QualifiedSubject.create(tenant(), context, subject);
+    String qualifiedSubject = qs.toQualifiedSubject();
+    Config config = null;
+    try {
+      config = getConfig(qualifiedSubject);
+    } catch (Exception e) {
+      // fall through
+    }
+    if (config == null) {
+      return qs;
+    }
+    String alias = config.getAlias();
+    if (alias != null && !alias.isEmpty()) {
+      return QualifiedSubject.qualifySubjectWithParent(tenant(), qualifiedSubject, alias, true);
+    } else {
+      return qs;
     }
   }
 
@@ -1298,7 +1367,7 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
     try {
       return lookupCache.config(subject, false, new Config(defaultCompatibilityLevel.name));
     } catch (StoreException e) {
-      throw new SchemaRegistryStoreException("Failed to write new config value to the store", e);
+      throw new SchemaRegistryStoreException("Failed to get config for " + subject, e);
     }
   }
 
@@ -1329,7 +1398,8 @@ public abstract class AbstractSchemaRegistry implements SchemaRegistry,
           throws SchemaRegistryException {
     try (CloseableIterator<SchemaRegistryValue> allVersions = allVersions(subject, false)) {
       List<SchemaKey> schemaKeys = schemaKeysByVersion(allVersions, filter);
-      Collections.sort(schemaKeys);
+      // sort schemaKeys by the absolute value of version in ascending order
+      schemaKeys.sort(Comparator.comparingInt(k -> Math.abs(k.getVersion())));
       return schemaKeys.iterator();
     }
   }
