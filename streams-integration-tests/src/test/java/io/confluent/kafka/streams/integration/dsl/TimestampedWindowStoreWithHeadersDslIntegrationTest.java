@@ -61,9 +61,15 @@ import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StoreQueryParameters;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.apache.kafka.streams.kstream.Aggregator;
 import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.Grouped;
 import org.apache.kafka.streams.kstream.JoinWindows;
+import org.apache.kafka.streams.kstream.KGroupedStream;
 import org.apache.kafka.streams.kstream.KStream;
+import org.apache.kafka.streams.kstream.SlidingWindows;
 import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
 import org.apache.kafka.streams.kstream.StreamJoined;
@@ -82,16 +88,22 @@ import org.apache.kafka.streams.state.WindowStore;
 import org.apache.kafka.streams.state.WindowStoreIterator;
 import org.apache.kafka.streams.state.internals.CompositeReadOnlyWindowStore;
 import org.apache.kafka.streams.state.internals.StateStoreProvider;
+import org.apache.kafka.test.TestUtils;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
+
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("IntegrationTest")
 public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends ClusterTestHarness {
+
+    private static final Logger log = LoggerFactory.getLogger(TimestampedWindowStoreWithHeadersDslIntegrationTest.class);
 
     private static final String KEY_SCHEMA_JSON = "{\"type\":\"record\",\"name\":\"WordKey\",\"fields\":[{\"name\":\"word\",\"type\":\"string\"}]}";
     private static final String VALUE_SCHEMA_JSON = "{\"type\":\"record\",\"name\":\"TextLine\",\"fields\":[{\"name\":\"line\",\"type\":\"string\"}]}";
@@ -100,8 +112,37 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     private final Schema valueSchema = new Schema.Parser().parse(VALUE_SCHEMA_JSON);
     private final Schema aggSchema = new Schema.Parser().parse(AGG_SCHEMA_JSON);
 
+    // Per-test resources released in @AfterEach to avoid JVM-level accumulation
+    // (RocksDB native handles, schema-registry HTTP clients, on-disk state dirs)
+    // across the parameterized invocations and other tests in the file.
+    private final List<KafkaStreams> openStreams = new ArrayList<>();
+    private final List<GenericAvroSerde> openSerdes = new ArrayList<>();
+
     public TimestampedWindowStoreWithHeadersDslIntegrationTest() {
         super(1, true);
+    }
+
+    @AfterEach
+    public void cleanUpStreamsResources() {
+        for (KafkaStreams streams : openStreams) {
+            try {
+                if (streams.state() != KafkaStreams.State.NOT_RUNNING) {
+                    streams.close(Duration.ofSeconds(30));
+                }
+                streams.cleanUp();
+            } catch (Exception e) {
+                log.warn("Failed to clean up KafkaStreams instance", e);
+            }
+        }
+        openStreams.clear();
+        for (GenericAvroSerde serde : openSerdes) {
+            try {
+                serde.close();
+            } catch (Exception e) {
+                log.warn("Failed to close GenericAvroSerde", e);
+            }
+        }
+        openSerdes.clear();
     }
 
     // Parameter provider for cache + grace combinations
@@ -155,13 +196,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(3000);
-
         // 1. Verify IQv1 Fetch - initial count
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
             StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
 
         long windowStart = (baseTime / windowSize.toMillis()) * windowSize.toMillis();
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store1 = store;
+        TestUtils.waitForCondition(
+            () -> {
+                Long v = getWindowValue(store1, createKey("kafka"), windowStart, windowSize.toMillis());
+                return v != null && v == 2L;
+            },
+            10_000, "kafka window count should reach 2");
         try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart + windowSize.toMillis()))) {
             assertTrue(it.hasNext(), "Should find windowed result");
             KeyValue<Long, ValueTimestampHeaders<Long>> next = it.next();
@@ -178,10 +224,16 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(2000);
-
         // Re-fetch store
         store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store2 = store;
+        TestUtils.waitForCondition(
+            () -> {
+                Long v = getWindowValue(store2, createKey("kafka"), windowStart, windowSize.toMillis());
+                return v != null && v == 3L;
+            },
+            10_000, "kafka window count should reach 3 after null event");
 
         // Verify "kafka" count is 3
         try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart + windowSize.toMillis()))) {
@@ -211,9 +263,15 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 producer.flush();
             }
 
-            Thread.sleep(3000);
-
             store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+            ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store3 = store;
+            TestUtils.waitForCondition(
+                () -> {
+                    Long v = getWindowValue(store3, createKey("kafka"), windowStart, windowSize.toMillis());
+                    return v != null && v == 4L;
+                },
+                10_000, "kafka window count should reach 4 after late record within grace");
 
             // Verify late record was counted (count should be 4: 3 original + 1 late)
             try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart + windowSize.toMillis()))) {
@@ -234,10 +292,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 producer.flush();
             }
 
-            Thread.sleep(3000);
-
             // Re-fetch store
             store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+            ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store4 = store;
+            // Wait for the time-advance record ("other2") to land — too-late record stays dropped, kafka stays at 4.
+            long other2WindowStart = ((baseTime + 20000) / windowSize.toMillis()) * windowSize.toMillis();
+            TestUtils.waitForCondition(
+                () -> {
+                    Long v = getWindowValue(store4, createKey("other2"), other2WindowStart, windowSize.toMillis());
+                    return v != null && v >= 1L;
+                },
+                10_000, "other2 should be processed (signals too-late record was also processed and dropped)");
 
             // Verify too-late record was dropped (count still 4)
             try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart + windowSize.toMillis()))) {
@@ -246,28 +312,276 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 assertEquals(4L, next.value.value(), "Count should still be 4, too-late record dropped");
             }
         }
-
-        // Close streams first to force cache flush
         closeStreams(streams);
 
         // 3. Verify Changelog Headers
-        // Expected changelog count varies:
-        // cached, no grace: 2 (deduplicated final state)
-        // uncached, no grace: 3 (individual updates)
-        // cached, with grace: 3 (original window + late update)
-        // uncached, with grace: 5+ (initial updates + late update)
-        int expectedMinRecords = cachingEnabled ? (graceEnabled ? 3 : 2) : (graceEnabled ? 4 : 3);
-        List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords = consumeRecords(
-            changelogTopic, "window-cg-" + testId, expectedMinRecords + 2, ByteArrayDeserializer.class);
+        int expectedRecords = cachingEnabled ? (graceEnabled ? 4 : 2) : (graceEnabled ? 7 : 4);
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() >= expectedMinRecords,
-            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
-        for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
                 assertKeySchemaIdHeader(record.headers(), changelogTopic, "Changelog header for windowed key");
             }
         }
+    }
 
+
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldCountWithHoppingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = cachingEnabled ? "-cached" : "-uncached";
+        suffix += graceEnabled ? "-grace" : "-nograce";
+        suffix += "-" + testId;
+        String inputTopic = "window-hop-input" + suffix;
+        String storeName = "window-hop-store" + suffix;
+        String changelogTopic = "window-hop-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration advanceBy = Duration.ofSeconds(5);
+        Duration gracePeriod = Duration.ofSeconds(5);
+
+        TimeWindows timeWindows = graceEnabled
+            ? TimeWindows.ofSizeAndGrace(windowSize, gracePeriod).advanceBy(advanceBy)
+            : TimeWindows.ofSizeWithNoGrace(windowSize).advanceBy(advanceBy);
+
+        builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
+            .groupByKey()
+            .windowedBy(timeWindows)
+            .count(Materialized.<GenericRecord, Long>as(
+                    new WindowStoreSupplierWithHeaders(
+                        Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
+                .withKeySerde(keySerde)
+                .withValueSerde(Serdes.Long()));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-hop-test" + suffix, cachingEnabled);
+
+        long baseTime = 3000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            // Send records at specific times to create overlapping windows for "kafka"
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("quick brown fox jumps"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), createTextLine("windowed by time"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 7000, createKey("kafka"), createTextLine("late events within grace"))).get();
+
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("streams"), createTextLine("quick brown fox jumps"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 6000, createKey("streams"), createTextLine("windowed by time"))).get();
+            producer.flush();
+        }
+
+        // Verify multiple overlapping windows exist for "kafka"
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> hopStore0 = store;
+        TestUtils.waitForCondition(
+            () -> {
+                Long v = getWindowValue(hopStore0, createKey("streams"), 0L, Long.MAX_VALUE);
+                return v != null && v >= 1L;
+            },
+            10_000, "streams hopping windows should be populated");
+
+        List<KeyValue<Long, ValueTimestampHeaders<Long>>> windows = new ArrayList<>();
+        try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
+                windows.add(window);
+                assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window " + window.key);
+            }
+        }
+
+        // With hopping windows (10s size, 5s advance), we should have 3 overlapping windows
+        assertTrue(windows.size() >= 3, "Should have at least 3 overlapping windows for kafka, got " + windows.size());
+
+        // Verify each window has correct count based on which records fall within it
+        for (KeyValue<Long, ValueTimestampHeaders<Long>> window : windows) {
+            long count = window.value.value();
+            assertTrue(count >= 1 && count <= 3, "kafka window count should be between 1 and 3, got " + count);
+        }
+
+        // Verify "streams" key also has overlapping windows
+        List<KeyValue<Long, ValueTimestampHeaders<Long>>> streamsWindows = new ArrayList<>();
+        try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
+                streamsWindows.add(window);
+                assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window for streams " + window.key);
+            }
+        }
+
+        assertTrue(streamsWindows.size() >= 2, "Should have at least 2 overlapping windows for streams, got " + streamsWindows.size());
+
+        // Verify each streams window has correct count
+        for (KeyValue<Long, ValueTimestampHeaders<Long>> window : streamsWindows) {
+            long count = window.value.value();
+            assertTrue(count >= 1 && count <= 2, "streams window count should be between 1 and 2, got " + count);
+        }
+
+        // Test grace period if enabled
+        if (graceEnabled) {
+            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+                // Advance stream time past window end but within grace
+                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 12000,
+                    createKey("other"), createTextLine("advance stream time"))).get();
+                // Send late record for "other-late" key with old timestamp (within grace)
+                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000,
+                    createKey("other-late"), createTextLine("late arrival event"))).get();
+                producer.flush();
+            }
+
+            store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+            ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> hopStore = store;
+            TestUtils.waitForCondition(
+                () -> {
+                    Long v = getWindowValue(hopStore, createKey("other-late"), 0L, Long.MAX_VALUE);
+                    return v != null && v >= 1L;
+                },
+                10_000, "other-late hopping window should be populated");
+
+            // Verify "other" key
+            List<KeyValue<Long, ValueTimestampHeaders<Long>>> otherWindows = new ArrayList<>();
+            try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("other"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                while (it.hasNext()) {
+                    KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
+                    otherWindows.add(window);
+                    assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window for other " + window.key);
+                }
+            }
+            assertEquals(2, otherWindows.size(), "Should have 2 windows for other key");
+            for (KeyValue<Long, ValueTimestampHeaders<Long>> window : otherWindows) {
+                assertEquals(1L, window.value.value(), "other window count should be 1");
+            }
+
+            // Verify "other-late" key (late-arriving record within grace)
+            List<KeyValue<Long, ValueTimestampHeaders<Long>>> otherLateWindows = new ArrayList<>();
+            try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("other-late"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                while (it.hasNext()) {
+                    KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
+                    otherLateWindows.add(window);
+                    assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window for other-late " + window.key);
+                }
+            }
+            assertEquals(1, otherLateWindows.size(), "Should have 1 window for other-late (earlier window closed), got " + otherLateWindows.size());
+            for (KeyValue<Long, ValueTimestampHeaders<Long>> window : otherLateWindows) {
+                assertEquals(1L, window.value.value(), "other-late window count should be 1");
+            }
+        }
+
+        closeStreams(streams);
+
+        // Verify Changelog Headers
+        int expectedRecords = cachingEnabled ? (graceEnabled ? 9 : 5) : (graceEnabled ? 13 : 9);
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-hop-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Changelog header for hopping window key");
+            }
+        }
+    }
+
+    /**
+     * Verifies {@code count()} on sliding windows with a headers-aware window store.
+     * Sliding windows produce one new window per record advancing by 1ms; multiple
+     * overlapping windows naturally form for nearby records.
+     */
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldCountWithSlidingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached")
+            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String inputTopic = "window-sliding-input" + suffix;
+        String storeName = "window-sliding-store" + suffix;
+        String changelogTopic = "window-sliding-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration grace = Duration.ofSeconds(5);
+        SlidingWindows slidingWindows = graceEnabled
+            ? SlidingWindows.ofTimeDifferenceAndGrace(windowSize, grace)
+            : SlidingWindows.ofTimeDifferenceWithNoGrace(windowSize);
+
+        builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
+            .groupByKey()
+            .windowedBy(slidingWindows)
+            .count(Materialized.<GenericRecord, Long>as(
+                    new WindowStoreSupplierWithHeaders(
+                        Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
+                .withKeySerde(keySerde)
+                .withValueSerde(Serdes.Long()));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-sliding-test" + suffix, cachingEnabled);
+
+        long baseTime = 15000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("kafka"), createTextLine("third"))).get();
+            // Advance stream time so emit triggers; SlidingWindows requires this for in-window updates to surface.
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 30000, createKey("advance"), createTextLine("advance time"))).get();
+            producer.flush();
+        }
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<Long>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    while (it.hasNext()) { it.next(); n++; }
+                    return n >= 2;
+                }
+            },
+            10_000, "kafka should appear in at least 2 sliding windows");
+
+        List<KeyValue<Long, ValueTimestampHeaders<Long>>> windows = new ArrayList<>();
+        try (WindowStoreIterator<ValueTimestampHeaders<Long>> it =
+                 store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<Long>> w = it.next();
+                windows.add(w);
+                assertKeySchemaIdHeader(w.value.headers(), changelogTopic, "IQv1 sliding kafka " + w.key);
+                long count = w.value.value();
+                assertTrue(count >= 1 && count <= 3, "kafka sliding window count should be 1-3, got " + count);
+            }
+        }
+        assertTrue(windows.size() >= 2, "kafka should be in at least 2 sliding windows, got " + windows.size());
+
+        closeStreams(streams);
+
+        int expectedRecords = cachingEnabled ? 6 : 7;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-sliding-cg-" + testId, expectedRecords,
+            ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Sliding window changelog");
+            } else {
+                String keyAsString = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(keyAsString.contains("kafka"), "Tombstone key bytes should contain 'kafka', got: " + keyAsString);
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Sliding window changelog");
+            }
+        }
     }
 
     @ParameterizedTest
@@ -334,11 +648,17 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(3000);
-
         // Verify IQv1
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
             StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> aggStore = store;
+        TestUtils.waitForCondition(
+            () -> {
+                GenericRecord v = getWindowValue(aggStore, createKey("kafka"), 0L, Long.MAX_VALUE);
+                return v != null && (long) v.get("count") == 3L;
+            },
+            10_000, "kafka aggregate count should reach 3");
 
         // Verify IQv1 Fetch for "kafka"
         try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
@@ -363,7 +683,14 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 10000, createKey("hello"), createTextLine("hello world from kafka"))).get();
             producer.flush();
         }
-        Thread.sleep(2000);
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> aggStore2 = store;
+        TestUtils.waitForCondition(
+            () -> {
+                GenericRecord v = getWindowValue(aggStore2, createKey("hello"), 0L, Long.MAX_VALUE);
+                return v != null && (long) v.get("count") == 1L;
+            },
+            10_000, "hello aggregate count should reach 1");
 
         // Verify "hello" exists
         try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("hello"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
@@ -378,20 +705,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 11000, createKey("hello"), createTextLine("DELETE"))).get();
             producer.flush();
         }
-        Thread.sleep(2000);
 
         // Re-fetch store reference in case of rebalance
         store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
 
         // Verify "hello" is tombstoned
-        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("hello"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
-            if (it.hasNext()) {
-                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> next = it.next();
-                assertNull(next.value.value(), "hello should be tombstoned after DELETE");
-            }
-        }
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> finalStore = store;
+        TestUtils.waitForCondition(
+            () -> getWindowValue(finalStore, createKey("hello"), 0L, Long.MAX_VALUE) == null,
+            10_000,
+            "IQv1 store: hello should be tombstoned");
 
-        // Verify "kafka" and "streams" still exist
+        // Verify other keys still exist.
         try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
             assertTrue(it.hasNext(), "kafka should still exist after hello DELETE");
             KeyValue<Long, ValueTimestampHeaders<GenericRecord>> kafkaResult = it.next();
@@ -402,171 +727,185 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         closeStreams(streams);
 
         // Verify changelog headers
-        int expectedMinRecords = cachingEnabled ? 2 : 5;
-        List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
-            consumeRecords(changelogTopic, "agg-changelog-cg-" + testId, expectedMinRecords, ByteArrayDeserializer.class);
+        int expectedRecords = cachingEnabled ? 2 : 7;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords =
+            consumeRecords(changelogTopic, "agg-changelog-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() >= expectedMinRecords,
-            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
-        for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), changelogTopic, "Aggregate changelog");
+            } else {
+                sawTombstone = true;
+                String keyAsString = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(keyAsString.contains("hello"), "Tombstone key bytes should contain 'hello', got: " + keyAsString);
                 assertKeySchemaIdHeader(record.headers(), changelogTopic, "Aggregate changelog");
             }
         }
+
+        if (!cachingEnabled) {
+            assertTrue(sawTombstone, "uncached changelog should contain a tombstone for hello");
+        }
     }
 
+    /**
+     * Verifies {@code aggregate()} on hopping windows with a headers-aware window store.
+     * A single input record contributes to multiple overlapping windows.
+     */
     @ParameterizedTest
     @MethodSource("cacheAndGraceParams")
-    public void shouldCountWithHoppingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+    public void shouldAggregateWithHoppingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
-        String inputTopic = "window-hop-input" + suffix;
-        String storeName = "window-hop-store" + suffix;
-        String changelogTopic = "window-hop-test" + suffix + "-" + storeName + "-changelog";
+        String suffix = (cachingEnabled ? "-cached" : "-uncached")
+            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String inputTopic = "window-hop-agg-input" + suffix;
+        String storeName = "window-hop-agg-store" + suffix;
+        String changelogTopic = "window-hop-agg-test" + suffix + "-" + storeName + "-changelog";
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
         GenericAvroSerde valueSerde = createValueSerde();
+        GenericAvroSerde aggSerde = createAggSerde();
 
         StreamsBuilder builder = new StreamsBuilder();
         Duration windowSize = Duration.ofSeconds(10);
-        Duration advanceBy = Duration.ofSeconds(5);
+        Duration advance = Duration.ofSeconds(5);
         Duration gracePeriod = Duration.ofSeconds(5);
-
-        TimeWindows timeWindows = graceEnabled
-            ? TimeWindows.ofSizeAndGrace(windowSize, gracePeriod).advanceBy(advanceBy)
-            : TimeWindows.ofSizeWithNoGrace(windowSize).advanceBy(advanceBy);
+        TimeWindows hoppingWindows = graceEnabled
+            ? TimeWindows.ofSizeAndGrace(windowSize, gracePeriod).advanceBy(advance)
+            : TimeWindows.ofSizeWithNoGrace(windowSize).advanceBy(advance);
 
         builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
             .groupByKey()
-            .windowedBy(timeWindows)
-            .count(Materialized.<GenericRecord, Long>as(
-                    new WindowStoreSupplierWithHeaders(
-                        Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
-                .withKeySerde(keySerde)
-                .withValueSerde(Serdes.Long()));
+            .windowedBy(hoppingWindows)
+            .aggregate(
+                () -> {
+                    GenericRecord init = new GenericData.Record(aggSchema);
+                    init.put("word", "");
+                    init.put("count", 0L);
+                    return init;
+                },
+                (key, value, agg) -> {
+                    // Null aggregation: returning null tombstones the window (consistent with tumbling agg test).
+                    if ("DELETE".equals(value.get("line").toString())) {
+                        return null;
+                    }
+                    GenericRecord updated = new GenericData.Record(aggSchema);
+                    updated.put("word", key.get("word").toString());
+                    updated.put("count", (long) agg.get("count") + 1L);
+                    return updated;
+                },
+                Materialized.<GenericRecord, GenericRecord>as(
+                        new WindowStoreSupplierWithHeaders(
+                            Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(aggSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-hop-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-hop-agg-test" + suffix, cachingEnabled);
 
-        long baseTime = 3000000L;
+        long baseTime = 11000000L;
         try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Send records at specific times to create overlapping windows for "kafka"
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("quick brown fox jumps"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), createTextLine("windowed by time"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 7000, createKey("kafka"), createTextLine("late events within grace"))).get();
-
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("streams"), createTextLine("quick brown fox jumps"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 6000, createKey("streams"), createTextLine("windowed by time"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 7000, createKey("kafka"), createTextLine("third"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
             producer.flush();
         }
 
-        Thread.sleep(3000);
-
-        // Verify multiple overlapping windows exist for "kafka"
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
             StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
 
-        List<KeyValue<Long, ValueTimestampHeaders<Long>>> windows = new ArrayList<>();
-        try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
-            while (it.hasNext()) {
-                KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
-                windows.add(window);
-                assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window " + window.key);
-            }
-        }
-
-        // With hopping windows (10s size, 5s advance), we should have 3 overlapping windows
-        assertTrue(windows.size() >= 3, "Should have at least 3 overlapping windows for kafka, got " + windows.size());
-
-        // Verify each window has correct count based on which records fall within it
-        for (KeyValue<Long, ValueTimestampHeaders<Long>> window : windows) {
-            long count = window.value.value();
-            assertTrue(count >= 1 && count <= 3, "kafka window count should be between 1 and 3, got " + count);
-        }
-
-        // Verify "streams" key also has overlapping windows
-        List<KeyValue<Long, ValueTimestampHeaders<Long>>> streamsWindows = new ArrayList<>();
-        try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
-            while (it.hasNext()) {
-                KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
-                streamsWindows.add(window);
-                assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window for streams " + window.key);
-            }
-        }
-
-        assertTrue(streamsWindows.size() >= 2, "Should have at least 2 overlapping windows for streams, got " + streamsWindows.size());
-
-        // Verify each streams window has correct count
-        for (KeyValue<Long, ValueTimestampHeaders<Long>> window : streamsWindows) {
-            long count = window.value.value();
-            assertTrue(count >= 1 && count <= 2, "streams window count should be between 1 and 2, got " + count);
-        }
-
-        // Test grace period if enabled
-        if (graceEnabled) {
-            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-                // Advance stream time past window end but within grace
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 12000,
-                    createKey("other"), createTextLine("advance stream time"))).get();
-                // Send late record for "other-late" key with old timestamp (within grace)
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000,
-                    createKey("other-late"), createTextLine("late arrival event"))).get();
-                producer.flush();
-            }
-
-            Thread.sleep(2000);
-
-            store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
-
-            // Verify "other" key
-            List<KeyValue<Long, ValueTimestampHeaders<Long>>> otherWindows = new ArrayList<>();
-            try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("other"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
-                while (it.hasNext()) {
-                    KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
-                    otherWindows.add(window);
-                    assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window for other " + window.key);
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    while (it.hasNext()) { it.next(); n++; }
+                    return n >= 2;
                 }
-            }
-            assertEquals(2, otherWindows.size(), "Should have 2 windows for other key");
-            for (KeyValue<Long, ValueTimestampHeaders<Long>> window : otherWindows) {
-                assertEquals(1L, window.value.value(), "other window count should be 1");
-            }
+            },
+            10_000, "kafka should appear in at least 2 hopping windows");
 
-            // Verify "other-late" key (late-arriving record within grace)
-            List<KeyValue<Long, ValueTimestampHeaders<Long>>> otherLateWindows = new ArrayList<>();
-            try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("other-late"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
-                while (it.hasNext()) {
-                    KeyValue<Long, ValueTimestampHeaders<Long>> window = it.next();
-                    otherLateWindows.add(window);
-                    assertKeySchemaIdHeader(window.value.headers(), changelogTopic, "IQv1 hopping window for other-late " + window.key);
-                }
-            }
-            assertEquals(1, otherLateWindows.size(), "Should have 1 window for other-late (earlier window closed), got " + otherLateWindows.size());
-            for (KeyValue<Long, ValueTimestampHeaders<Long>> window : otherLateWindows) {
-                assertEquals(1L, window.value.value(), "other-late window count should be 1");
+        List<KeyValue<Long, ValueTimestampHeaders<GenericRecord>>> windows = new ArrayList<>();
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                windows.add(w);
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 hopping agg " + w.key);
+                long count = (long) w.value.value().get("count");
+                assertTrue(count >= 1 && count <= 3, "kafka hopping window count should be 1-3, got " + count);
             }
         }
-        
+        assertTrue(windows.size() >= 2, "kafka should be in at least 2 overlapping windows, got " + windows.size());
+
+        int kafkaWindowsBefore = windows.size();
+
+        // Tombstone kafka via DELETE.
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 8000, createKey("kafka"), createTextLine("DELETE"))).get();
+            producer.flush();
+        }
+
+        // Wait for kafka windows to be tombstoned.
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    boolean sawNull = false;
+                    while (it.hasNext()) {
+                        KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                        if (w.value == null || w.value.value() == null) sawNull = true;
+                        n++;
+                    }
+                    return sawNull || n < kafkaWindowsBefore;
+                }
+            },
+            10_000, "kafka hopping windows should be tombstoned or removed after DELETE");
+
+        // Check other keys still exist.
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                 store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "streams should still exist after kafka DELETE");
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                assertNotNull(w.value, "streams window value should not be null after kafka DELETE");
+                assertNotNull(w.value.value(), "streams window inner value should not be null");
+                long c = (long) w.value.value().get("count");
+                assertTrue(c >= 1 && c <= 2, "streams hopping window count should be 1-2 after kafka DELETE, got " + c);
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 hopping agg streams post-tombstone " + w.key);
+            }
+        }
+
         closeStreams(streams);
 
-        // Verify Changelog Headers
-        // Expected records: 2 keys (kafka + streams) with multiple overlapping windows each
-        // cached scenarios: deduplicated, uncached: all updates
-        // grace scenarios: additional 2 keys (other + other-late)
-        int expectedMinRecords = cachingEnabled ? (graceEnabled ? 4 : 2) : (graceEnabled ? 8 : 5);
-        List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords = consumeRecords(
-            changelogTopic, "window-hop-cg-" + testId, expectedMinRecords + 5, ByteArrayDeserializer.class);
-
-        assertTrue(changelogRecords.size() >= expectedMinRecords,
-            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
-        for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+        int expectedRecords = cachingEnabled ? (graceEnabled ? 3 : 2) : (graceEnabled ? 12 : 10);
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-hop-agg-cg-" + testId, expectedRecords,
+            ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
-                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Changelog header for hopping window key");
+                assertSchemaIdHeaders(record.headers(), changelogTopic, "Hopping aggregate changelog");
+            } else {
+                sawTombstone = true;
+                String keyAsString = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(keyAsString.contains("kafka"), "Tombstone key bytes should contain 'kafka', got: " + keyAsString);
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Hopping aggregate changelog tombstone");
             }
         }
+        // Uncached: tombstone for kafka window(s) reaches changelog
+        if (!cachingEnabled) {
+            assertTrue(sawTombstone, "uncached changelog should contain a tombstone for kafka");
+        }
     }
+
+
 
     @ParameterizedTest
     @MethodSource("cacheAndGraceParams")
@@ -596,6 +935,10 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             .windowedBy(timeWindows)
             .reduce(
                 (v1, v2) -> {
+                    // Null aggregation: returning null tombstones the window.
+                    if ("DELETE".equals(v2.get("line").toString())) {
+                        return null;
+                    }
                     // Concatenate "line" fields from both values
                     GenericRecord combined = new GenericData.Record(valueSchema);
                     String line1 = v1.get("line").toString();
@@ -623,11 +966,16 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(3000);
-
         // Verify IQv1 Fetch result
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
             StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                GenericRecord v = getWindowValue(store, createKey("streams"), 0L, Long.MAX_VALUE);
+                return v != null && v.get("line").toString().contains("reduce second value");
+            },
+            10_000, "reduce should have processed both streams records");
 
         // Verify IQv1 Fetch result for "kafka"
         try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
@@ -649,20 +997,341 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             assertSchemaIdHeaders(next.value.headers(), changelogTopic, "IQv1 streams reduce");
         }
 
+        // Tombstone kafka via DELETE.
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
+            producer.flush();
+        }
+
+        // Wait for kafka window to be tombstoned
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    if (!it.hasNext()) return true;
+                    KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                    return w.value == null || w.value.value() == null;
+                }
+            },
+            10_000, "kafka window should be tombstoned or removed after DELETE");
+
+        // other keys remain.
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "streams should still exist after kafka DELETE");
+            KeyValue<Long, ValueTimestampHeaders<GenericRecord>> next = it.next();
+            assertNotNull(next.value, "streams window value should not be null");
+            assertNotNull(next.value.value(), "streams window inner value should not be null");
+            String reducedLine = next.value.value().get("line").toString();
+            assertTrue(reducedLine.contains("reduce first value") && reducedLine.contains("reduce second value"),
+                "streams reduced line should still contain both values after kafka DELETE: " + reducedLine);
+            assertSchemaIdHeaders(next.value.headers(), changelogTopic, "IQv1 streams reduce post-tombstone");
+        }
+
         closeStreams(streams);
 
-        // Verify Changelog Headers
-        // 2 keys with updates, cached=deduplicated, uncached=all updates
-        int expectedMinRecords = cachingEnabled ? 2 : 5;
-        List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords = consumeRecords(
-            changelogTopic, "window-reduce-cg-" + testId, expectedMinRecords + 3, ByteArrayDeserializer.class);
+        int expectedRecords = cachingEnabled ? 1 : 6;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-reduce-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() >= expectedMinRecords,
-            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
-        for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
-                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Changelog header for windowed reduce");
+                assertSchemaIdHeaders(record.headers(), changelogTopic, "Changelog header for windowed reduce");
+            } else {
+                sawTombstone = true;
+                String keyAsString = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(keyAsString.contains("kafka"), "Tombstone key bytes should contain 'kafka', got: " + keyAsString);
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Reduce changelog tombstone");
             }
+        }
+        if (!cachingEnabled) {
+            assertTrue(sawTombstone, "uncached changelog should contain a tombstone for kafka");
+        }
+    }
+
+    /**
+     * Verifies {@code reduce()} on hopping windows with a headers-aware window store.
+     */
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldReduceWithHoppingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached")
+            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String inputTopic = "window-hop-reduce-input" + suffix;
+        String storeName = "window-hop-reduce-store" + suffix;
+        String changelogTopic = "window-hop-reduce-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration advance = Duration.ofSeconds(5);
+        Duration gracePeriod = Duration.ofSeconds(5);
+        TimeWindows hoppingWindows = graceEnabled
+            ? TimeWindows.ofSizeAndGrace(windowSize, gracePeriod).advanceBy(advance)
+            : TimeWindows.ofSizeWithNoGrace(windowSize).advanceBy(advance);
+
+        builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
+            .groupByKey()
+            .windowedBy(hoppingWindows)
+            .reduce(
+                (oldVal, newVal) -> {
+                    // Null aggregation: returning null tombstones the window.
+                    if ("DELETE".equals(newVal.get("line").toString())) {
+                        return null;
+                    }
+                    GenericRecord combined = new GenericData.Record(valueSchema);
+                    combined.put("line", oldVal.get("line") + "|" + newVal.get("line"));
+                    return combined;
+                },
+                Materialized.<GenericRecord, GenericRecord>as(
+                        new WindowStoreSupplierWithHeaders(
+                            Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-hop-reduce-test" + suffix, cachingEnabled);
+
+        long baseTime = 12000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("a"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), createTextLine("b"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 7000, createKey("kafka"), createTextLine("c"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("x"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("y"))).get();
+            producer.flush();
+        }
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    while (it.hasNext()) { it.next(); n++; }
+                    return n >= 2;
+                }
+            },
+            10_000, "kafka should appear in at least 2 hopping windows after reduce");
+
+        List<KeyValue<Long, ValueTimestampHeaders<GenericRecord>>> windows = new ArrayList<>();
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                windows.add(w);
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 hopping reduce " + w.key);
+                String reduced = w.value.value().get("line").toString();
+                assertTrue(reduced.length() >= 1, "kafka hopping reduce line should be non-empty, got: " + reduced);
+            }
+        }
+        assertTrue(windows.size() >= 2, "kafka should be in at least 2 overlapping windows, got " + windows.size());
+
+        int kafkaWindowsBefore = windows.size();
+
+        // Tombstone kafka via DELETE.
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 8000, createKey("kafka"), createTextLine("DELETE"))).get();
+            producer.flush();
+        }
+
+        // Wait for kafka windows to be tombstoned or removed.
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    boolean sawNull = false;
+                    while (it.hasNext()) {
+                        KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                        if (w.value == null || w.value.value() == null) sawNull = true;
+                        n++;
+                    }
+                    return sawNull || n < kafkaWindowsBefore;
+                }
+            },
+            10_000, "kafka hopping windows should be tombstoned or removed after DELETE");
+
+        // other keys remain.
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                 store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "streams should still exist after kafka DELETE");
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                assertNotNull(w.value, "streams window value should not be null");
+                assertNotNull(w.value.value(), "streams window inner value should not be null");
+                String reduced = w.value.value().get("line").toString();
+                assertTrue(reduced.length() >= 1, "streams hopping reduce line should be non-empty");
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 hopping reduce streams post-tombstone " + w.key);
+            }
+        }
+
+        closeStreams(streams);
+
+        int expectedRecords = cachingEnabled ? (graceEnabled ? 3 : 2) : (graceEnabled ? 12 : 10);
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-hop-reduce-cg-" + testId, expectedRecords,
+            ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have at least " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), changelogTopic, "Hopping reduce changelog");
+            } else {
+                sawTombstone = true;
+                String keyAsString = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(keyAsString.contains("kafka"), "Tombstone key bytes should contain 'kafka', got: " + keyAsString);
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Hopping reduce changelog tombstone");
+            }
+        }
+        if (!cachingEnabled) {
+            assertTrue(sawTombstone, "uncached changelog should contain a tombstone for kafka");
+        }
+    }
+
+    /**
+     * Verifies that {@code cogroup()} with a windowed aggregate works with a
+     * headers-aware window store. Two grouped streams from separate topics are
+     * merged into one windowed aggregation.
+     */
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldCogroupWithTumblingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = cachingEnabled ? "-cached" : "-uncached";
+        suffix += graceEnabled ? "-grace" : "-nograce";
+        suffix += "-" + testId;
+        String inputTopic1 = "window-cogroup-input1" + suffix;
+        String inputTopic2 = "window-cogroup-input2" + suffix;
+        String storeName = "window-cogroup-store" + suffix;
+        String changelogTopic = "window-cogroup-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic1, inputTopic2);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+        GenericAvroSerde aggSerde = createAggSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration gracePeriod = Duration.ofSeconds(5);
+        TimeWindows timeWindows = graceEnabled
+            ? TimeWindows.ofSizeAndGrace(windowSize, gracePeriod)
+            : TimeWindows.ofSizeWithNoGrace(windowSize);
+
+        Aggregator<GenericRecord, GenericRecord, GenericRecord> aggregator = (key, value, agg) -> {
+            if ("DELETE".equals(value.get("line").toString())) {
+                return null;
+            }
+            GenericRecord updated = new GenericData.Record(aggSchema);
+            updated.put("word", key.get("word").toString());
+            updated.put("count", (long) agg.get("count") + 1L);
+            return updated;
+        };
+
+        KGroupedStream<GenericRecord, GenericRecord> grouped1 = builder
+            .stream(inputTopic1, Consumed.with(keySerde, valueSerde))
+            .groupByKey(Grouped.with(keySerde, valueSerde));
+        KGroupedStream<GenericRecord, GenericRecord> grouped2 = builder
+            .stream(inputTopic2, Consumed.with(keySerde, valueSerde))
+            .groupByKey(Grouped.with(keySerde, valueSerde));
+
+        grouped1.cogroup(aggregator)
+            .cogroup(grouped2, aggregator)
+            .windowedBy(timeWindows)
+            .aggregate(
+                () -> {
+                    GenericRecord init = new GenericData.Record(aggSchema);
+                    init.put("word", "");
+                    init.put("count", 0L);
+                    return init;
+                },
+                Materialized.<GenericRecord, GenericRecord>as(
+                        new WindowStoreSupplierWithHeaders(
+                            Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(aggSerde));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-cogroup-test" + suffix, cachingEnabled);
+
+        long baseTime = 7000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime + 1000, createKey("kafka"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic2, 0, baseTime + 2000, createKey("kafka"), createTextLine("third"))).get();
+            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime + 3000, createKey("streams"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic2, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
+            producer.flush();
+        }
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                GenericRecord v = getWindowValue(store, createKey("kafka"), 0L, Long.MAX_VALUE);
+                return v != null && (long) v.get("count") == 3L;
+            },
+            10_000, "kafka cogroup window count should reach 3");
+
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "Should find windowed cogroup result for kafka");
+            KeyValue<Long, ValueTimestampHeaders<GenericRecord>> next = it.next();
+            assertEquals(3L, next.value.value().get("count"), "kafka count should be 3 (cogrouped from both topics)");
+            assertSchemaIdHeaders(next.value.headers(), changelogTopic, "IQv1 cogroup kafka");
+        }
+
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it = store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "Should find windowed cogroup result for streams");
+            KeyValue<Long, ValueTimestampHeaders<GenericRecord>> next = it.next();
+            assertEquals(2L, next.value.value().get("count"), "streams count should be 2");
+            assertSchemaIdHeaders(next.value.headers(), changelogTopic, "IQv1 cogroup streams");
+        }
+
+        // Tombstone kafka via DELETE.
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
+            producer.flush();
+        }
+
+        TestUtils.waitForCondition(
+            () -> getWindowValue(store, createKey("kafka"), 0L, Long.MAX_VALUE) == null,
+            10_000, "IQv1 store: kafka should be tombstoned after DELETE");
+
+        // other keys remain.
+        GenericRecord streamsAfter = getWindowValue(store, createKey("streams"), 0L, Long.MAX_VALUE);
+        assertNotNull(streamsAfter, "streams should still exist after kafka DELETE");
+        assertEquals(2L, streamsAfter.get("count"), "streams count should still be 2 after kafka DELETE");
+
+        closeStreams(streams);
+
+        // Changelog verification
+        int expectedRecords = cachingEnabled ? 1 : 6;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-cogroup-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have at least " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), changelogTopic, "Cogroup changelog");
+            } else {
+                sawTombstone = true;
+                String keyAsString = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(keyAsString.contains("kafka"), "Tombstone key bytes should contain 'kafka', got: " + keyAsString);
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Cogroup changelog tombstone");
+            }
+        }
+        // uncached: tombstone always reaches output; cached coalesces put-then-delete.
+        if (!cachingEnabled) {
+            assertTrue(sawTombstone, "changelog should contain a tombstone for kafka");
         }
     }
 
@@ -750,8 +1419,6 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(2000);
-
         // Verify IQv1 queries on join stores before consuming output topic
         Properties consumerProps = createConsumerProps("join-output-cg-" + testId);
         consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -759,11 +1426,23 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         final int expectedOutputRecordCount = 2;
         final Instant pollDeadline = Instant.now().plus(Duration.ofSeconds(10));
         List<ConsumerRecord<GenericRecord, GenericRecord>> outputRecords = new ArrayList<>();
+        List<ConsumerRecord<GenericRecord, GenericRecord>> afterNull = new ArrayList<>();
         try (KafkaConsumer<GenericRecord, GenericRecord> consumer = new KafkaConsumer<>(consumerProps, keySerde.deserializer(), aggSerde.deserializer())) {
             consumer.subscribe(Collections.singletonList(outputTopic));
             while (outputRecords.size() < expectedOutputRecordCount && Instant.now().isBefore(pollDeadline)) {
                 ConsumerRecords<GenericRecord, GenericRecord> records = consumer.poll(Duration.ofMillis(500));
                 records.forEach(outputRecords::add);
+            }
+
+            // Stream-stream join skips null-value inputs on either side
+            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
+                producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            long afterNullDeadline = System.currentTimeMillis() + 5_000;
+            while (System.currentTimeMillis() < afterNullDeadline) {
+                consumer.poll(Duration.ofMillis(500)).forEach(afterNull::add);
             }
         }
 
@@ -797,30 +1476,677 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         // Verify "other" key did not join
         assertFalse(resultsByKey.containsKey("other"), "Should not have joined result for other key");
 
+        assertEquals(0, afterNull.size(),
+            "Null-value inputs should be dropped; no new output records should appear");
+
         closeStreams(streams);
 
-        // Verify changelog topics for join stores
+        // Verify changelog topics for left and right join stores
         String leftChangelog = applicationId + "-" + leftJoinStore + "-changelog";
         String rightChangelog = applicationId + "-" + rightJoinStore + "-changelog";
 
-        // Verify left join store changelog
-        List<ConsumerRecord<GenericRecord, byte[]>> leftChangelogRecords =
-            consumeRecords(leftChangelog, "join-left-changelog-cg-" + testId, 3, ByteArrayDeserializer.class);
+        List<ConsumerRecord<byte[], byte[]>> leftChangelogRecords =
+            consumeRecords(leftChangelog, "join-left-changelog-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
         assertTrue(leftChangelogRecords.size() >= 1, "Left join changelog should have at least 1 record, got " + leftChangelogRecords.size());
-        for (ConsumerRecord<GenericRecord, byte[]> record : leftChangelogRecords) {
+        for (ConsumerRecord<byte[], byte[]> record : leftChangelogRecords) {
             if (record.value() != null) {
                 assertKeySchemaIdHeader(record.headers(), leftChangelog, "Left join store changelog");
             }
         }
 
-        // Verify right join store changelog
-        List<ConsumerRecord<GenericRecord, byte[]>> rightChangelogRecords =
-            consumeRecords(rightChangelog, "join-right-changelog-cg-" + testId, 3, ByteArrayDeserializer.class);
+        List<ConsumerRecord<byte[], byte[]>> rightChangelogRecords =
+            consumeRecords(rightChangelog, "join-right-changelog-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
         assertTrue(rightChangelogRecords.size() >= 1, "Right join changelog should have at least 1 record, got " + rightChangelogRecords.size());
-        for (ConsumerRecord<GenericRecord, byte[]> record : rightChangelogRecords) {
+        for (ConsumerRecord<byte[], byte[]> record : rightChangelogRecords) {
             if (record.value() != null) {
-                assertKeySchemaIdHeader(record.headers(), rightChangelog, "Right join store changelog");
+                assertSchemaIdHeaders(record.headers(), rightChangelog, "Right join store changelog");
             }
+        }
+    }
+
+    /**
+     * Verifies stream-stream {@code leftJoin()} on a windowed join with a headers-aware
+     * window store. Left-join emits a result for every left record, with right=null when
+     * no right-side match exists in the join window.
+     */
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldStreamStreamsLeftJoinWithHeaders(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached")
+            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String leftTopic = "leftjoin-left-input" + suffix;
+        String rightTopic = "leftjoin-right-input" + suffix;
+        String outputTopic = "leftjoin-output" + suffix;
+
+        createTopics(leftTopic, rightTopic, outputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+        GenericAvroSerde aggSerde = createAggSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration joinWindow = Duration.ofSeconds(5);
+        Duration gracePeriod = Duration.ofSeconds(2);
+        Duration storeWindowSize = joinWindow.multipliedBy(2);
+        Duration retention = storeWindowSize.plus(graceEnabled ? gracePeriod : Duration.ZERO);
+
+        JoinWindows joinWindows = graceEnabled
+            ? JoinWindows.ofTimeDifferenceAndGrace(joinWindow, gracePeriod)
+            : JoinWindows.ofTimeDifferenceWithNoGrace(joinWindow);
+
+        KStream<GenericRecord, GenericRecord> leftStream = builder.stream(leftTopic, Consumed.with(keySerde, valueSerde));
+        KStream<GenericRecord, GenericRecord> rightStream = builder.stream(rightTopic, Consumed.with(keySerde, valueSerde));
+
+        String joinStoreName = "my-leftjoin" + suffix;
+        String leftJoinStore = joinStoreName + "-left";
+        String rightJoinStore = joinStoreName + "-right";
+
+        WindowBytesStoreSupplier leftStoreSupplier = new WindowStoreSupplierWithHeaders(
+            Stores.persistentTimestampedWindowStoreWithHeaders(leftJoinStore, retention, storeWindowSize, true));
+        WindowBytesStoreSupplier rightStoreSupplier = new WindowStoreSupplierWithHeaders(
+            Stores.persistentTimestampedWindowStoreWithHeaders(rightJoinStore, retention, storeWindowSize, true));
+
+        leftStream.leftJoin(
+            rightStream,
+            (leftValue, rightValue) -> {
+                GenericRecord joined = new GenericData.Record(aggSchema);
+                String left = leftValue.get("line").toString();
+                String right = rightValue == null ? "<none>" : rightValue.get("line").toString();
+                joined.put("word", left + "-" + right);
+                joined.put("count", rightValue == null ? 0L : 1L);
+                return joined;
+            },
+            joinWindows,
+            StreamJoined.with(keySerde, valueSerde, valueSerde)
+                .withThisStoreSupplier(leftStoreSupplier)
+                .withOtherStoreSupplier(rightStoreSupplier)
+        ).to(outputTopic, Produced.with(keySerde, aggSerde));
+
+        String applicationId = "stream-leftjoin-test" + suffix;
+        Map<String, Object> extraProps = new HashMap<>();
+        extraProps.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 1000);
+        // Disable the wall-clock throttle on outer-emission scans so the unmatched left record
+        // is emitted on the very next record arrival rather than waiting 1s of wall-clock time.
+        extraProps.put("__emit.interval.ms.kstreams.outer.join.spurious.results.fix__", 0L);
+        // Wait for cross-topic alignment so records get processed in event-time order; otherwise
+        // a late right-side record can arrive after stream time has advanced and be dropped.
+        extraProps.put(StreamsConfig.MAX_TASK_IDLE_MS_CONFIG, 1000L);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled, extraProps);
+
+        long baseTime = 13000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime, createKey("kafka"), createTextLine("L1"))).get();
+            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("R1"))).get();
+            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 3000, createKey("only-left"), createTextLine("L2"))).get();
+            // Drain advances stream time past only-left's join-window-close to trigger left-only emission.
+            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
+            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
+            producer.flush();
+        }
+
+        Properties consumerProps = createConsumerProps("leftjoin-output-cg-" + testId);
+        consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        List<ConsumerRecord<GenericRecord, GenericRecord>> outputRecords = new ArrayList<>();
+        List<ConsumerRecord<GenericRecord, GenericRecord>> afterNull = new ArrayList<>();
+        try (KafkaConsumer<GenericRecord, GenericRecord> consumer =
+                 new KafkaConsumer<>(consumerProps, keySerde.deserializer(), aggSerde.deserializer())) {
+            consumer.subscribe(Collections.singletonList(outputTopic));
+            consumer.poll(Duration.ofMillis(100));
+            // Wait until the deterministic kafka join match appears.
+            TestUtils.waitForCondition(
+                () -> {
+                    consumer.poll(Duration.ofMillis(500)).forEach(outputRecords::add);
+                    return outputRecords.stream()
+                        .anyMatch(r -> "kafka".equals(r.key().get("word").toString()));
+                },
+                60_000,
+                "kafka join result should appear");
+            // Drain remaining outputs (only-left, drain).
+            long drainDeadline = System.currentTimeMillis() + 5_000;
+            while (System.currentTimeMillis() < drainDeadline) {
+                consumer.poll(Duration.ofMillis(500)).forEach(outputRecords::add);
+            }
+
+            // Stream-stream leftJoin skips null-value inputs on either side
+            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
+                producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            long afterNullDeadline = System.currentTimeMillis() + 5_000;
+            while (System.currentTimeMillis() < afterNullDeadline) {
+                consumer.poll(Duration.ofMillis(500)).forEach(afterNull::add);
+            }
+        }
+        assertTrue(outputRecords.size() >= 2,
+            "leftJoin should emit kafka(both), only-left(left-only), drain(both); got " + outputRecords.size());
+
+        Map<String, ConsumerRecord<GenericRecord, GenericRecord>> byKey = new HashMap<>();
+        for (ConsumerRecord<GenericRecord, GenericRecord> record : outputRecords) {
+            byKey.put(record.key().get("word").toString(), record);
+            assertSchemaIdHeaders(record.headers(), outputTopic,
+                "leftJoin output " + record.key().get("word"));
+        }
+        assertEquals("L1-R1", byKey.get("kafka").value().get("word").toString());
+        assertEquals(1L, byKey.get("kafka").value().get("count"));
+
+        assertTrue(byKey.containsKey("only-left"), "only-left should appear with right=<none>");
+        assertEquals("L2-<none>", byKey.get("only-left").value().get("word").toString());
+        assertEquals(0L, byKey.get("only-left").value().get("count"));
+
+        assertEquals(0, afterNull.size(),
+            "Null-value inputs should be dropped; no new output records should appear");
+
+        closeStreams(streams);
+
+        // Verify changelog store records for left, right and outer-left join stores.
+        String leftChangelog = applicationId + "-" + leftJoinStore + "-changelog";
+        String rightChangelog = applicationId + "-" + rightJoinStore + "-changelog";
+        String outerLeftChangelog = applicationId + "-" + leftJoinStore + "-left-shared-join-store-changelog";
+
+        List<ConsumerRecord<byte[], byte[]>> leftChangelogRecords = consumeRecords(
+            leftChangelog, "leftjoin-left-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(leftChangelogRecords.size() >= 1, "Left changelog should have records, got " + leftChangelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : leftChangelogRecords) {
+            if (record.value() != null) {
+                assertKeySchemaIdHeader(record.headers(), leftChangelog, "Left leftJoin store changelog");
+            }
+        }
+
+        List<ConsumerRecord<byte[], byte[]>> rightChangelogRecords = consumeRecords(
+            rightChangelog, "leftjoin-right-cg-" + testId, 2, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(rightChangelogRecords.size() >= 1, "Right changelog should have records, got " + rightChangelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : rightChangelogRecords) {
+            if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), rightChangelog, "Right leftJoin store changelog");
+            }
+        }
+
+        List<ConsumerRecord<byte[], byte[]>> outerLeftRecords = consumeRecords(
+            outerLeftChangelog, "leftjoin-outer-cg-" + testId, 5, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        boolean sawOnlyLeft = false;
+        for (ConsumerRecord<byte[], byte[]> record : outerLeftRecords) {
+            if (record.key() != null
+                && new String(record.key(), java.nio.charset.StandardCharsets.UTF_8).contains("only-left")) {
+                sawOnlyLeft = true;
+                break;
+            }
+        }
+        assertTrue(sawOnlyLeft,
+            "outer-join store changelog (" + outerLeftChangelog + ") should contain the unmatched 'only-left' key; "
+                + "got " + outerLeftRecords.size() + " records");
+    }
+
+    /**
+     * Verifies stream-stream {@code outerJoin()} on a windowed join with a headers-aware
+     * window store. Outer-join emits results for unmatched records on either side once
+     * the join window has closed and stream time has advanced.
+     */
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldStreamStreamsOuterJoinWithHeaders(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached")
+            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String leftTopic = "outerjoin-left-input" + suffix;
+        String rightTopic = "outerjoin-right-input" + suffix;
+        String outputTopic = "outerjoin-output" + suffix;
+
+        createTopics(leftTopic, rightTopic, outputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+        GenericAvroSerde aggSerde = createAggSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration joinWindow = Duration.ofSeconds(5);
+        Duration gracePeriod = Duration.ofSeconds(2);
+        Duration storeWindowSize = joinWindow.multipliedBy(2);
+        Duration retention = storeWindowSize.plus(graceEnabled ? gracePeriod : Duration.ZERO);
+
+        JoinWindows joinWindows = graceEnabled
+            ? JoinWindows.ofTimeDifferenceAndGrace(joinWindow, gracePeriod)
+            : JoinWindows.ofTimeDifferenceWithNoGrace(joinWindow);
+
+        KStream<GenericRecord, GenericRecord> leftStream = builder.stream(leftTopic, Consumed.with(keySerde, valueSerde));
+        KStream<GenericRecord, GenericRecord> rightStream = builder.stream(rightTopic, Consumed.with(keySerde, valueSerde));
+
+        String joinStoreName = "my-outerjoin" + suffix;
+        String leftJoinStore = joinStoreName + "-left";
+        String rightJoinStore = joinStoreName + "-right";
+
+        WindowBytesStoreSupplier leftStoreSupplier = new WindowStoreSupplierWithHeaders(
+            Stores.persistentTimestampedWindowStoreWithHeaders(leftJoinStore, retention, storeWindowSize, true));
+        WindowBytesStoreSupplier rightStoreSupplier = new WindowStoreSupplierWithHeaders(
+            Stores.persistentTimestampedWindowStoreWithHeaders(rightJoinStore, retention, storeWindowSize, true));
+
+        leftStream.outerJoin(
+            rightStream,
+            (leftValue, rightValue) -> {
+                GenericRecord joined = new GenericData.Record(aggSchema);
+                String left = leftValue == null ? "<none>" : leftValue.get("line").toString();
+                String right = rightValue == null ? "<none>" : rightValue.get("line").toString();
+                joined.put("word", left + "-" + right);
+                joined.put("count", (leftValue != null && rightValue != null) ? 1L : 0L);
+                return joined;
+            },
+            joinWindows,
+            StreamJoined.with(keySerde, valueSerde, valueSerde)
+                .withThisStoreSupplier(leftStoreSupplier)
+                .withOtherStoreSupplier(rightStoreSupplier)
+        ).to(outputTopic, Produced.with(keySerde, aggSerde));
+
+        // Produce inputs BEFORE starting streams so the consumer reads them deterministically from offset 0.
+        long baseTime = 14000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime, createKey("both"), createTextLine("L1"))).get();
+            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 1000, createKey("both"), createTextLine("R1"))).get();
+            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 3000, createKey("only-left"), createTextLine("L2"))).get();
+            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 4000, createKey("only-right"), createTextLine("R2"))).get();
+            // Drain advances stream time past join+grace on both sides to trigger left-/right-only emissions.
+            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
+            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
+            producer.flush();
+        }
+
+        String applicationId = "stream-outerjoin-test" + suffix;
+        Map<String, Object> extraProps = new HashMap<>();
+        extraProps.put(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 1000);
+        // Disable the wall-clock throttle on outer-emission scans so unmatched-side records
+        // are emitted on the very next record arrival rather than waiting 1s of wall-clock time.
+        extraProps.put("__emit.interval.ms.kstreams.outer.join.spurious.results.fix__", 0L);
+        // Wait for cross-topic alignment so records get processed in event-time order; otherwise
+        // a late record on either side can arrive after stream time has advanced and be dropped.
+        extraProps.put(StreamsConfig.MAX_TASK_IDLE_MS_CONFIG, 1000L);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled, extraProps);
+
+        Properties consumerProps = createConsumerProps("outerjoin-output-cg-" + testId);
+        consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        List<ConsumerRecord<GenericRecord, GenericRecord>> outputRecords = new ArrayList<>();
+        List<ConsumerRecord<GenericRecord, GenericRecord>> afterNull = new ArrayList<>();
+        try (KafkaConsumer<GenericRecord, GenericRecord> consumer =
+                 new KafkaConsumer<>(consumerProps, keySerde.deserializer(), aggSerde.deserializer())) {
+            consumer.subscribe(Collections.singletonList(outputTopic));
+            consumer.poll(Duration.ofMillis(100));
+            // Wait until the deterministic both-keys join match appears.
+            TestUtils.waitForCondition(
+                () -> {
+                    consumer.poll(Duration.ofMillis(500)).forEach(outputRecords::add);
+                    return outputRecords.stream()
+                        .anyMatch(r -> "both".equals(r.key().get("word").toString()));
+                },
+                60_000,
+                "both-keys join result should appear");
+            // Drain remaining outputs (only-left, only-right, drain).
+            long drainDeadline = System.currentTimeMillis() + 5_000;
+            while (System.currentTimeMillis() < drainDeadline) {
+                consumer.poll(Duration.ofMillis(500)).forEach(outputRecords::add);
+            }
+
+            // Stream-stream outerJoin skips null-value inputs on either side
+            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+                producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 50000, createKey("both"), (GenericRecord) null)).get();
+                producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 50000, createKey("both"), (GenericRecord) null)).get();
+                producer.flush();
+            }
+            long afterNullDeadline = System.currentTimeMillis() + 5_000;
+            while (System.currentTimeMillis() < afterNullDeadline) {
+                consumer.poll(Duration.ofMillis(500)).forEach(afterNull::add);
+            }
+        }
+        assertTrue(outputRecords.size() >= 3,
+            "outerJoin should emit at least 3 results (both, only-left, only-right, drain); got " + outputRecords.size());
+
+        Map<String, ConsumerRecord<GenericRecord, GenericRecord>> byKey = new HashMap<>();
+        for (ConsumerRecord<GenericRecord, GenericRecord> record : outputRecords) {
+            byKey.put(record.key().get("word").toString(), record);
+            assertSchemaIdHeaders(record.headers(), outputTopic,
+                "outerJoin output " + record.key().get("word"));
+        }
+        assertEquals("L1-R1", byKey.get("both").value().get("word").toString());
+        assertEquals(1L, byKey.get("both").value().get("count"));
+
+        assertTrue(byKey.containsKey("only-left"), "only-left should appear");
+        assertEquals("L2-<none>", byKey.get("only-left").value().get("word").toString());
+
+        assertTrue(byKey.containsKey("only-right"), "only-right should appear");
+        assertEquals("<none>-R2", byKey.get("only-right").value().get("word").toString());
+
+        assertEquals(0, afterNull.size(),
+            "Null-value inputs should be dropped; no new output records should appear");
+
+        closeStreams(streams);
+
+        // Verify changelog store records for left, right and outer-join stores.
+        String leftChangelog = applicationId + "-" + leftJoinStore + "-changelog";
+        String rightChangelog = applicationId + "-" + rightJoinStore + "-changelog";
+        String outerSharedChangelog = applicationId + "-" + leftJoinStore + "-outer-shared-join-store-changelog";
+
+        List<ConsumerRecord<byte[], byte[]>> leftChangelogRecords = consumeRecords(
+            leftChangelog, "outerjoin-left-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(leftChangelogRecords.size() >= 1, "Left changelog should have records, got " + leftChangelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : leftChangelogRecords) {
+            if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), leftChangelog, "Left outerJoin store changelog");
+            }
+        }
+
+        List<ConsumerRecord<byte[], byte[]>> rightChangelogRecords = consumeRecords(
+            rightChangelog, "outerjoin-right-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(rightChangelogRecords.size() >= 1, "Right changelog should have records, got " + rightChangelogRecords.size());
+        for (ConsumerRecord<byte[], byte[]> record : rightChangelogRecords) {
+            if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), rightChangelog, "Right outerJoin store changelog");
+            }
+        }
+
+        List<ConsumerRecord<byte[], byte[]>> outerRecords = consumeRecords(
+            outerSharedChangelog, "outerjoin-outer-cg-" + testId, 6, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        boolean sawOnlyLeft = false;
+        boolean sawOnlyRight = false;
+        for (ConsumerRecord<byte[], byte[]> record : outerRecords) {
+            if (record.key() == null) continue;
+            String keyStr = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+            if (keyStr.contains("only-left")) sawOnlyLeft = true;
+            if (keyStr.contains("only-right")) sawOnlyRight = true;
+        }
+        assertTrue(sawOnlyLeft,
+            "outer-join shared store changelog (" + outerSharedChangelog + ") should contain unmatched 'only-left' key; got " + outerRecords.size() + " records");
+        assertTrue(sawOnlyRight,
+            "outer-join shared store changelog (" + outerSharedChangelog + ") should contain unmatched 'only-right' key; got " + outerRecords.size() + " records");
+    }
+
+    /**
+     * Verifies {@code aggregate()} on sliding windows with a headers-aware window store.
+     */
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldAggregateWithSlidingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached")
+            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String inputTopic = "window-sliding-agg-input" + suffix;
+        String storeName = "window-sliding-agg-store" + suffix;
+        String changelogTopic = "window-sliding-agg-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+        GenericAvroSerde aggSerde = createAggSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration grace = Duration.ofSeconds(5);
+        SlidingWindows slidingWindows = graceEnabled
+            ? SlidingWindows.ofTimeDifferenceAndGrace(windowSize, grace)
+            : SlidingWindows.ofTimeDifferenceWithNoGrace(windowSize);
+
+        builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
+            .groupByKey()
+            .windowedBy(slidingWindows)
+            .aggregate(
+                () -> {
+                    GenericRecord init = new GenericData.Record(aggSchema);
+                    init.put("word", "");
+                    init.put("count", 0L);
+                    return init;
+                },
+                (key, value, agg) -> {
+                    // Tombstone via DELETE.
+                    if ("DELETE".equals(value.get("line").toString())) {
+                        return null;
+                    }
+                    GenericRecord updated = new GenericData.Record(aggSchema);
+                    updated.put("word", key.get("word").toString());
+                    updated.put("count", (long) agg.get("count") + 1L);
+                    return updated;
+                },
+                Materialized.<GenericRecord, GenericRecord>as(
+                        new WindowStoreSupplierWithHeaders(
+                            Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(aggSerde));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-sliding-agg-test" + suffix, cachingEnabled);
+
+        long baseTime = 16000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            // Monotonically non-decreasing timestamps so NoGrace sliding windows don't drop late records.
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("kafka"), createTextLine("third"))).get();
+            producer.flush();
+        }
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    while (it.hasNext()) { it.next(); n++; }
+                    return n >= 2;
+                }
+            },
+            10_000, "kafka should appear in at least 2 sliding windows after aggregate");
+
+        List<KeyValue<Long, ValueTimestampHeaders<GenericRecord>>> windows = new ArrayList<>();
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                 store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                windows.add(w);
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 sliding agg " + w.key);
+                long count = (long) w.value.value().get("count");
+                assertTrue(count >= 1 && count <= 3, "kafka sliding window count should be 1-3, got " + count);
+            }
+        }
+        assertTrue(windows.size() >= 2, "kafka should be in at least 2 sliding windows, got " + windows.size());
+        int kafkaWindowsBefore = windows.size();
+
+        // Tombstone kafka via DELETE.
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
+            producer.flush();
+        }
+
+        // Wait for kafka windows to be tombstoned or removed.
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    boolean sawNull = false;
+                    while (it.hasNext()) {
+                        KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                        if (w.value == null || w.value.value() == null) sawNull = true;
+                        n++;
+                    }
+                    return sawNull || n < kafkaWindowsBefore;
+                }
+            },
+            10_000, "kafka sliding windows should be tombstoned or removed after DELETE");
+
+        // other keys remain.
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                 store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "streams should still exist after kafka DELETE");
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                assertNotNull(w.value, "streams sliding window value should not be null");
+                assertNotNull(w.value.value(), "streams sliding window inner value should not be null");
+                long c = (long) w.value.value().get("count");
+                assertTrue(c >= 1 && c <= 2, "streams sliding window count should be 1-2 after kafka DELETE, got " + c);
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 sliding agg streams post-tombstone " + w.key);
+            }
+        }
+
+        closeStreams(streams);
+
+        int expectedRecords = cachingEnabled ? 6 : 13;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-sliding-agg-cg-" + testId, expectedRecords,
+            ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(changelogRecords.size() == expectedRecords,
+            "Should have at least " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), changelogTopic, "Sliding aggregate changelog");
+            } else {
+                sawTombstone = true;
+                String keyAsString = new String(record.key(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(keyAsString.contains("kafka"), "Tombstone key bytes should contain 'kafka', got: " + keyAsString);
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Sliding aggregate changelog tombstone");
+            }
+        }
+        if (!cachingEnabled) {
+            assertTrue(sawTombstone, "uncached changelog should contain a tombstone for kafka");
+        }
+    }
+
+    /**
+     * Verifies {@code reduce()} on sliding windows with a headers-aware window store.
+     */
+    @ParameterizedTest
+    @MethodSource("cacheAndGraceParams")
+    public void shouldReduceWithSlidingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached")
+            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String inputTopic = "window-sliding-reduce-input" + suffix;
+        String storeName = "window-sliding-reduce-store" + suffix;
+        String changelogTopic = "window-sliding-reduce-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration grace = Duration.ofSeconds(5);
+        SlidingWindows slidingWindows = graceEnabled
+            ? SlidingWindows.ofTimeDifferenceAndGrace(windowSize, grace)
+            : SlidingWindows.ofTimeDifferenceWithNoGrace(windowSize);
+
+        builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
+            .groupByKey()
+            .windowedBy(slidingWindows)
+            .reduce(
+                (oldVal, newVal) -> {
+                    if ("DELETE".equals(newVal.get("line").toString())) {
+                        return null;
+                    }
+                    GenericRecord combined = new GenericData.Record(valueSchema);
+                    combined.put("line", oldVal.get("line") + "|" + newVal.get("line"));
+                    return combined;
+                },
+                Materialized.<GenericRecord, GenericRecord>as(
+                        new WindowStoreSupplierWithHeaders(
+                            Stores.persistentTimestampedWindowStoreWithHeaders(storeName, Duration.ofMinutes(5), windowSize, false)))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-sliding-reduce-test" + suffix, cachingEnabled);
+
+        long baseTime = 17000000L;
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            // Monotonically non-decreasing timestamps so NoGrace sliding windows don't drop late records.
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("a"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("x"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("b"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("y"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("kafka"), createTextLine("c"))).get();
+            producer.flush();
+        }
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    while (it.hasNext()) { it.next(); n++; }
+                    return n >= 2;
+                }
+            },
+            10_000, "kafka should appear in at least 2 sliding windows after reduce");
+
+        List<KeyValue<Long, ValueTimestampHeaders<GenericRecord>>> windows = new ArrayList<>();
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                 store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                windows.add(w);
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 sliding reduce " + w.key);
+                String reduced = w.value.value().get("line").toString();
+                assertTrue(reduced.length() >= 1, "kafka sliding reduce line should be non-empty, got: " + reduced);
+            }
+        }
+        assertTrue(windows.size() >= 2, "kafka should be in at least 2 sliding windows, got " + windows.size());
+        int kafkaWindowsBefore = windows.size();
+
+        // Tombstone kafka via DELETE.
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
+            producer.flush();
+        }
+
+        // Wait for kafka windows to be tombstoned or removed.
+        TestUtils.waitForCondition(
+            () -> {
+                try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                         store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+                    int n = 0;
+                    boolean sawNull = false;
+                    while (it.hasNext()) {
+                        KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                        if (w.value == null || w.value.value() == null) sawNull = true;
+                        n++;
+                    }
+                    return sawNull || n < kafkaWindowsBefore;
+                }
+            },
+            10_000, "kafka sliding windows should be tombstoned or removed after DELETE");
+
+        // other keys remain.
+        try (WindowStoreIterator<ValueTimestampHeaders<GenericRecord>> it =
+                 store.fetch(createKey("streams"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
+            assertTrue(it.hasNext(), "streams should still exist after kafka DELETE");
+            while (it.hasNext()) {
+                KeyValue<Long, ValueTimestampHeaders<GenericRecord>> w = it.next();
+                assertNotNull(w.value, "streams sliding window value should not be null");
+                assertNotNull(w.value.value(), "streams sliding window inner value should not be null");
+                String reduced = w.value.value().get("line").toString();
+                assertTrue(reduced.length() >= 1, "streams sliding reduce line should be non-empty");
+                assertSchemaIdHeaders(w.value.headers(), changelogTopic, "IQv1 sliding reduce streams post-tombstone " + w.key);
+            }
+        }
+
+        closeStreams(streams);
+
+        int expectedMinRecords = cachingEnabled ? 2 : 4;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-sliding-reduce-cg-" + testId, expectedMinRecords + 6,
+            ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(changelogRecords.size() >= expectedMinRecords,
+            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertSchemaIdHeaders(record.headers(), changelogTopic, "Sliding reduce changelog");
+            } else {
+                sawTombstone = true;
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Sliding reduce changelog tombstone");
+            }
+        }
+        if (!cachingEnabled) {
+            assertTrue(sawTombstone, "uncached changelog should contain a tombstone for kafka");
         }
     }
 
@@ -876,7 +2202,14 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(2000);
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> suppressStore = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        TestUtils.waitForCondition(
+            () -> {
+                Long v = getWindowValue(suppressStore, createKey("kafka"), 0L, Long.MAX_VALUE);
+                return v != null && v == 2L;
+            },
+            10_000, "kafka should have count 2 in store before suppress release");
 
         // Verify no output yet (suppressed)
         Properties consumerProps = createConsumerProps("suppress-output-cg-" + testId);
@@ -900,7 +2233,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(3000);
+        // The output consumer below polls for up to 10s for the suppressed release.
 
         // Verify suppressed results are emitted with headers
         outputRecords.clear();
@@ -946,10 +2279,16 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             producer.flush();
         }
 
-        Thread.sleep(2000);
-
         // Re-fetch store
         store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> nullValueStore = store;
+        TestUtils.waitForCondition(
+            () -> {
+                Long v = getWindowValue(nullValueStore, createKey("nullvalue"), 0L, Long.MAX_VALUE);
+                return v != null && v == 2L;
+            },
+            10_000, "nullvalue count should reach 2 (count() treats null value as event)");
+
         try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("nullvalue"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
             assertTrue(it.hasNext(), "Should find nullvalue in store");
             KeyValue<Long, ValueTimestampHeaders<Long>> result = it.next();
@@ -961,15 +2300,346 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
 
         // Verify changelog headers
         int expectedMinRecords = cachingEnabled ? 3 : 5; // kafka updates + other
-        List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords = consumeRecords(
-            changelogTopic, "suppress-changelog-cg-" + testId, expectedMinRecords, ByteArrayDeserializer.class);
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "suppress-changelog-cg-" + testId, expectedMinRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
         assertTrue(changelogRecords.size() >= expectedMinRecords,
             "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
-        for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
                 assertKeySchemaIdHeader(record.headers(), changelogTopic, "Changelog with suppression");
             }
+        }
+    }
+
+    /**
+     * Verifies that {@code KStream.process()} works correctly with a headers-aware
+     * window store attached via the PAPI-on-DSL pattern. The processor reads/writes
+     * the window store directly (one window per record's bucket-aligned timestamp)
+     * and forwards a windowed count.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void shouldProcessWithWindowStore(boolean cachingEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached") + "-" + testId;
+        String inputTopic = "window-process-input" + suffix;
+        String outputTopic = "window-process-output" + suffix;
+        String storeName = "window-process-store" + suffix;
+        String changelogTopic = "window-process-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic, outputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration retention = Duration.ofMinutes(5);
+
+        StreamsBuilder builder = new StreamsBuilder();
+        builder.addStateStore(
+            Stores.timestampedWindowStoreWithHeadersBuilder(
+                Stores.persistentTimestampedWindowStoreWithHeaders(storeName, retention, windowSize, false),
+                keySerde,
+                Serdes.Long()));
+
+        builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
+            .process(
+                (org.apache.kafka.streams.processor.api.ProcessorSupplier<GenericRecord, GenericRecord, GenericRecord, Long>) () ->
+                    new org.apache.kafka.streams.processor.api.Processor<GenericRecord, GenericRecord, GenericRecord, Long>() {
+                        private TimestampedWindowStoreWithHeaders<GenericRecord, Long> store;
+                        private org.apache.kafka.streams.processor.api.ProcessorContext<GenericRecord, Long> ctx;
+
+                        @Override
+                        public void init(org.apache.kafka.streams.processor.api.ProcessorContext<GenericRecord, Long> context) {
+                            this.ctx = context;
+                            this.store = context.getStateStore(storeName);
+                        }
+
+                        @Override
+                        public void process(org.apache.kafka.streams.processor.api.Record<GenericRecord, GenericRecord> record) {
+                            long windowStart = (record.timestamp() / windowSize.toMillis()) * windowSize.toMillis();
+                            if (record.value() == null) {
+                                store.put(record.key(), null, windowStart);
+                                ctx.forward(new org.apache.kafka.streams.processor.api.Record<>(
+                                    record.key(), null, record.timestamp(), record.headers()));
+                                return;
+                            }
+                            ValueTimestampHeaders<Long> existing = store.fetch(record.key(), windowStart);
+                            long current = (existing != null && existing.value() != null) ? existing.value() : 0L;
+                            long updated = current + 1L;
+                            store.put(record.key(),
+                                ValueTimestampHeaders.make(updated, record.timestamp(), record.headers()),
+                                windowStart);
+                            ctx.forward(new org.apache.kafka.streams.processor.api.Record<>(
+                                record.key(), updated, record.timestamp(), record.headers()));
+                        }
+                    },
+                storeName)
+            .to(outputTopic, Produced.with(keySerde, Serdes.Long()));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-process-test" + suffix, cachingEnabled);
+
+        long baseTime = 9000000L;
+        long windowStart = (baseTime / windowSize.toMillis()) * windowSize.toMillis();
+
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("third"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("hello"), createTextLine("first"))).get();
+            producer.flush();
+        }
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                Long v = getWindowValue(store, createKey("kafka"), windowStart, windowSize.toMillis());
+                return v != null && v == 3L;
+            },
+            10_000, "kafka window count should reach 3");
+
+        ValueTimestampHeaders<Long> kafkaResult = store.fetch(createKey("kafka"), windowStart);
+        assertEquals(3L, kafkaResult.value(), "IQv1: kafka count should be 3");
+        assertKeySchemaIdHeader(kafkaResult.headers(), inputTopic, "IQv1 process kafka");
+
+        ValueTimestampHeaders<Long> streamsResult = store.fetch(createKey("streams"), windowStart);
+        assertNotNull(streamsResult, "IQv1: streams should exist");
+        assertEquals(2L, streamsResult.value(), "IQv1: streams count should be 2");
+        assertKeySchemaIdHeader(streamsResult.headers(), inputTopic, "IQv1 process streams");
+
+        ValueTimestampHeaders<Long> helloResult = store.fetch(createKey("hello"), windowStart);
+        assertNotNull(helloResult, "IQv1: hello should exist");
+        assertEquals(1L, helloResult.value(), "IQv1: hello count should be 1");
+        assertKeySchemaIdHeader(helloResult.headers(), inputTopic, "IQv1 process hello");
+
+        // Tombstone kafka via null-value record (processor deletes the window).
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 6000, createKey("kafka"), (GenericRecord) null)).get();
+            producer.flush();
+        }
+
+        TestUtils.waitForCondition(
+            () -> getWindowValue(store, createKey("kafka"), windowStart, windowSize.toMillis()) == null,
+            10_000, "IQv1: kafka should be tombstoned after null-value record");
+
+        ValueTimestampHeaders<Long> streamsAfter = store.fetch(createKey("streams"), windowStart);
+        assertNotNull(streamsAfter, "IQv1: streams should still exist after kafka tombstone");
+        assertEquals(2L, streamsAfter.value(), "IQv1: streams should still be 2 after tombstone");
+        ValueTimestampHeaders<Long> helloAfter = store.fetch(createKey("hello"), windowStart);
+        assertNotNull(helloAfter, "IQv1: hello should still exist after kafka tombstone");
+        assertEquals(1L, helloAfter.value(), "IQv1: hello should still be 1 after tombstone");
+
+        closeStreams(streams);
+
+        // Output: 6 phase-1 forwards + 1 tombstone forward.
+        List<ConsumerRecord<GenericRecord, Long>> outputRecords = consumeRecords(
+            outputTopic, "window-process-output-cg-" + testId, 7,
+            KafkaAvroDeserializer.class, org.apache.kafka.common.serialization.LongDeserializer.class);
+        assertEquals(7, outputRecords.size(), "Should have 7 forwarded output records (6 puts + 1 tombstone)");
+        Map<String, Long> latestCounts = new HashMap<>();
+        boolean sawOutputTombstone = false;
+        for (ConsumerRecord<GenericRecord, Long> record : outputRecords) {
+            String key = record.key().get("word").toString();
+            if (record.value() == null) {
+                sawOutputTombstone = true;
+                assertEquals("kafka", key, "only kafka should be tombstoned in output");
+                assertKeySchemaIdHeader(record.headers(), outputTopic, "process tombstone output " + key);
+            } else {
+                latestCounts.put(key, record.value());
+                assertKeySchemaIdHeader(record.headers(), outputTopic, "process output " + key);
+            }
+        }
+        assertTrue(sawOutputTombstone, "output should contain a tombstone for kafka");
+        assertEquals(3L, latestCounts.get("kafka"), "kafka final non-tombstone count should be 3");
+        assertEquals(2L, latestCounts.get("streams"), "streams latest count should be 2");
+        assertEquals(1L, latestCounts.get("hello"), "hello latest count should be 1");
+
+        // Changelog: 6 puts + 1 tombstone uncached; cached coalesces.
+        int expectedMinRecords = cachingEnabled ? 3 : 7;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-process-cg-" + testId, expectedMinRecords + 2,
+            ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(changelogRecords.size() >= expectedMinRecords,
+            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawChangelogTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Process changelog");
+            } else {
+                sawChangelogTombstone = true;
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "Process changelog tombstone");
+            }
+        }
+        // uncached: tombstone always reaches changelog; cached may coalesce.
+        if (!cachingEnabled) {
+            assertTrue(sawChangelogTombstone, "uncached changelog should contain a tombstone for kafka");
+        }
+    }
+
+    /**
+     * Verifies that {@code KStream.processValues()} works correctly with a headers-aware
+     * window store attached via the PAPI-on-DSL pattern. Same shape as the
+     * {@code process()} test but using the fixed-key processor API.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void shouldProcessValuesWithWindowStore(boolean cachingEnabled) throws Exception {
+        String testId = UUID.randomUUID().toString().substring(0, 8);
+        String suffix = (cachingEnabled ? "-cached" : "-uncached") + "-" + testId;
+        String inputTopic = "window-pv-input" + suffix;
+        String outputTopic = "window-pv-output" + suffix;
+        String storeName = "window-pv-store" + suffix;
+        String changelogTopic = "window-pv-test" + suffix + "-" + storeName + "-changelog";
+
+        createTopics(inputTopic, outputTopic);
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        Duration windowSize = Duration.ofSeconds(10);
+        Duration retention = Duration.ofMinutes(5);
+
+        StreamsBuilder builder = new StreamsBuilder();
+        builder.addStateStore(
+            Stores.timestampedWindowStoreWithHeadersBuilder(
+                Stores.persistentTimestampedWindowStoreWithHeaders(storeName, retention, windowSize, false),
+                keySerde,
+                Serdes.Long()));
+
+        builder.stream(inputTopic, Consumed.with(keySerde, valueSerde))
+            .processValues(
+                (org.apache.kafka.streams.processor.api.FixedKeyProcessorSupplier<GenericRecord, GenericRecord, Long>) () ->
+                    new org.apache.kafka.streams.processor.api.FixedKeyProcessor<GenericRecord, GenericRecord, Long>() {
+                        private TimestampedWindowStoreWithHeaders<GenericRecord, Long> store;
+                        private org.apache.kafka.streams.processor.api.FixedKeyProcessorContext<GenericRecord, Long> ctx;
+
+                        @Override
+                        public void init(org.apache.kafka.streams.processor.api.FixedKeyProcessorContext<GenericRecord, Long> context) {
+                            this.ctx = context;
+                            this.store = context.getStateStore(storeName);
+                        }
+
+                        @Override
+                        public void process(org.apache.kafka.streams.processor.api.FixedKeyRecord<GenericRecord, GenericRecord> record) {
+                            long windowStart = (record.timestamp() / windowSize.toMillis()) * windowSize.toMillis();
+                            if (record.value() == null) {
+                                store.put(record.key(), null, windowStart);
+                                ctx.forward(record.withValue(null));
+                                return;
+                            }
+                            ValueTimestampHeaders<Long> existing = store.fetch(record.key(), windowStart);
+                            long current = (existing != null && existing.value() != null) ? existing.value() : 0L;
+                            long updated = current + 1L;
+                            store.put(record.key(),
+                                ValueTimestampHeaders.make(updated, record.timestamp(), record.headers()),
+                                windowStart);
+                            ctx.forward(record.withValue(updated));
+                        }
+                    },
+                storeName)
+            .to(outputTopic, Produced.with(keySerde, Serdes.Long()));
+
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-pv-test" + suffix, cachingEnabled);
+
+        long baseTime = 10000000L;
+        long windowStart = (baseTime / windowSize.toMillis()) * windowSize.toMillis();
+
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("third"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("first"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("hello"), createTextLine("first"))).get();
+            producer.flush();
+        }
+
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
+            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+
+        TestUtils.waitForCondition(
+            () -> {
+                Long v = getWindowValue(store, createKey("kafka"), windowStart, windowSize.toMillis());
+                return v != null && v == 3L;
+            },
+            10_000, "kafka window count should reach 3");
+
+        ValueTimestampHeaders<Long> kafkaResult = store.fetch(createKey("kafka"), windowStart);
+        assertEquals(3L, kafkaResult.value(), "IQv1: kafka count should be 3");
+        assertKeySchemaIdHeader(kafkaResult.headers(), inputTopic, "IQv1 processValues kafka");
+
+        ValueTimestampHeaders<Long> streamsResult = store.fetch(createKey("streams"), windowStart);
+        assertNotNull(streamsResult, "IQv1: streams should exist");
+        assertEquals(2L, streamsResult.value(), "IQv1: streams count should be 2");
+        assertKeySchemaIdHeader(streamsResult.headers(), inputTopic, "IQv1 processValues streams");
+
+        ValueTimestampHeaders<Long> helloResult = store.fetch(createKey("hello"), windowStart);
+        assertNotNull(helloResult, "IQv1: hello should exist");
+        assertEquals(1L, helloResult.value(), "IQv1: hello count should be 1");
+        assertKeySchemaIdHeader(helloResult.headers(), inputTopic, "IQv1 processValues hello");
+
+        // Tombstone kafka via null-value record (processor deletes the window).
+        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 6000, createKey("kafka"), (GenericRecord) null)).get();
+            producer.flush();
+        }
+
+        TestUtils.waitForCondition(
+            () -> getWindowValue(store, createKey("kafka"), windowStart, windowSize.toMillis()) == null,
+            10_000, "IQv1: kafka should be tombstoned after null-value record");
+
+        ValueTimestampHeaders<Long> streamsAfter = store.fetch(createKey("streams"), windowStart);
+        assertNotNull(streamsAfter, "IQv1: streams should still exist after kafka tombstone");
+        assertEquals(2L, streamsAfter.value(), "IQv1: streams should still be 2 after tombstone");
+        ValueTimestampHeaders<Long> helloAfter = store.fetch(createKey("hello"), windowStart);
+        assertNotNull(helloAfter, "IQv1: hello should still exist after kafka tombstone");
+        assertEquals(1L, helloAfter.value(), "IQv1: hello should still be 1 after tombstone");
+
+        closeStreams(streams);
+
+        // Output: 6 phase-1 forwards + 1 tombstone forward.
+        List<ConsumerRecord<GenericRecord, Long>> outputRecords = consumeRecords(
+            outputTopic, "window-pv-output-cg-" + testId, 7,
+            KafkaAvroDeserializer.class, org.apache.kafka.common.serialization.LongDeserializer.class);
+        assertEquals(7, outputRecords.size(), "Should have 7 forwarded output records (6 puts + 1 tombstone)");
+        Map<String, Long> latestCounts = new HashMap<>();
+        boolean sawOutputTombstone = false;
+        for (ConsumerRecord<GenericRecord, Long> record : outputRecords) {
+            String key = record.key().get("word").toString();
+            if (record.value() == null) {
+                sawOutputTombstone = true;
+                assertEquals("kafka", key, "only kafka should be tombstoned in output");
+                assertKeySchemaIdHeader(record.headers(), outputTopic, "processValues tombstone output " + key);
+            } else {
+                latestCounts.put(key, record.value());
+                assertKeySchemaIdHeader(record.headers(), outputTopic, "processValues output " + key);
+            }
+        }
+        assertTrue(sawOutputTombstone, "output should contain a tombstone for kafka");
+        assertEquals(3L, latestCounts.get("kafka"));
+        assertEquals(2L, latestCounts.get("streams"));
+        assertEquals(1L, latestCounts.get("hello"));
+
+        int expectedMinRecords = cachingEnabled ? 3 : 7;
+        List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
+            changelogTopic, "window-pv-cg-" + testId, expectedMinRecords + 2,
+            ByteArrayDeserializer.class, ByteArrayDeserializer.class);
+        assertTrue(changelogRecords.size() >= expectedMinRecords,
+            "Should have at least " + expectedMinRecords + " changelog records, got " + changelogRecords.size());
+        boolean sawChangelogTombstone = false;
+        for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
+            if (record.value() != null) {
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "ProcessValues changelog");
+            } else {
+                sawChangelogTombstone = true;
+                assertKeySchemaIdHeader(record.headers(), changelogTopic, "ProcessValues changelog tombstone");
+            }
+        }
+        if (!cachingEnabled) {
+            assertTrue(sawChangelogTombstone, "uncached changelog should contain a tombstone for kafka");
         }
     }
 
@@ -977,7 +2647,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     private static class TimestampedWindowStoreWithHeadersType<K, V>
         implements QueryableStoreType<ReadOnlyWindowStore<K, ValueTimestampHeaders<V>>> {
         @Override public boolean accepts(StateStore s) {
-            return s instanceof TimestampedWindowStoreWithHeaders && s instanceof ReadOnlyWindowStore;
+            return s instanceof TimestampedWindowStoreWithHeaders;
         }
         @Override public ReadOnlyWindowStore<K, ValueTimestampHeaders<V>> create(StateStoreProvider p, String n) {
             return new CompositeReadOnlyWindowStore<>(p, this, n);
@@ -1019,6 +2689,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
         config.put(AbstractKafkaSchemaSerDeConfig.KEY_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
         serde.configure(config, true);
+        openSerdes.add(serde);
         return serde;
     }
 
@@ -1028,6 +2699,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
         config.put(AbstractKafkaSchemaSerDeConfig.VALUE_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
         serde.configure(config, false);
+        openSerdes.add(serde);
         return serde;
     }
 
@@ -1037,6 +2709,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
         config.put(AbstractKafkaSchemaSerDeConfig.VALUE_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
         serde.configure(config, false);
+        openSerdes.add(serde);
         return serde;
     }
 
@@ -1085,10 +2758,16 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         });
         streams.start();
         assertTrue(startedLatch.await(30, TimeUnit.SECONDS), "KafkaStreams should reach RUNNING state");
+        openStreams.add(streams);
         return streams;
     }
 
-    private void closeStreams(KafkaStreams streams) { if (streams != null) streams.close(); }
+    private void closeStreams(KafkaStreams streams) {
+        if (streams != null) {
+            streams.close(Duration.ofSeconds(30));
+            streams.cleanUp();
+        }
+    }
 
     private void assertSchemaIdHeaders(Headers headers, String topic, String context) {
         Header keyHeader = headers.lastHeader(SchemaId.KEY_SCHEMA_ID_HEADER);
@@ -1140,25 +2819,44 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         return r;
     }
 
-    private <V> List<ConsumerRecord<GenericRecord, V>> consumeRecords(
+    /** Returns the value from the first window for {@code key}, or null if absent/tombstoned. */
+    private <V> V getWindowValue(ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<V>> store,
+                                 GenericRecord key, long windowStart, long windowSizeMs) {
+        try (WindowStoreIterator<ValueTimestampHeaders<V>> it =
+                 store.fetch(key, Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart + windowSizeMs))) {
+            if (!it.hasNext()) return null;
+            ValueTimestampHeaders<V> v = it.next().value;
+            return (v == null) ? null : v.value();
+        }
+    }
+
+    private <K, V> List<ConsumerRecord<K, V>> consumeRecords(
         String topic, String groupId, int expectedCount,
-        Class<?> valueDeserializerClass) {
+        Class<?> keyDeserializerClass, Class<?> valueDeserializerClass) {
         Properties props = new Properties();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, keyDeserializerClass.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, valueDeserializerClass.getName());
         props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
         props.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, false);
 
-        List<ConsumerRecord<GenericRecord, V>> results = new ArrayList<>();
-        try (KafkaConsumer<GenericRecord, V> consumer = new KafkaConsumer<>(props)) {
+        List<ConsumerRecord<K, V>> results = new ArrayList<>();
+        try (KafkaConsumer<K, V> consumer = new KafkaConsumer<>(props)) {
             consumer.subscribe(Collections.singletonList(topic));
+
+            // Priming poll: triggers metadata fetch, coordinator lookup, partition
+            // assignment, and offset reset. Without this, the first real poll can
+            // return empty while assignment is still completing.
+            for (ConsumerRecord<K, V> record : consumer.poll(Duration.ofMillis(100))) {
+                results.add(record);
+            }
+
             long deadline = System.currentTimeMillis() + 30_000;
             while (results.size() < expectedCount && System.currentTimeMillis() < deadline) {
-                ConsumerRecords<GenericRecord, V> records = consumer.poll(Duration.ofMillis(500));
-                for (ConsumerRecord<GenericRecord, V> record : records) {
+                ConsumerRecords<K, V> records = consumer.poll(Duration.ofMillis(500));
+                for (ConsumerRecord<K, V> record : records) {
                     results.add(record);
                 }
             }
