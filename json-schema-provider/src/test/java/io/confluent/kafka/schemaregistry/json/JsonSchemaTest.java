@@ -36,6 +36,7 @@ import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.confluent.kafka.schemaregistry.CompatibilityPolicy;
 import io.confluent.kafka.schemaregistry.ParsedSchema;
 import io.confluent.kafka.schemaregistry.SchemaProvider;
 import io.confluent.kafka.schemaregistry.client.rest.entities.Metadata;
@@ -798,6 +799,43 @@ public class JsonSchemaTest {
     Metadata metadata = new Metadata(pathTags, null, null);
     resultSchema = resultSchema.copy(metadata, null);
     assertEquals(ImmutableSet.of("EXTERNAL"), resultSchema.tags());
+  }
+
+  @Test
+  public void testAddBeforeRemoveTags() {
+    String schemaString = "{\n" +
+      "  \"$schema\": \"http://json-schema.org/draft-07/schema#\",\n" +
+      "  \"title\": \"SampleRecord\",\n" +
+      "  \"type\": \"object\",\n" +
+      "  \"properties\": {\n" +
+      "    \"myfield1\": {\n" +
+      "      \"type\": \"string\",\n" +
+      "      \"confluent:tags\": [ \"EXISTING\" ]\n" +
+      "    }\n" +
+      "  }\n" +
+      "}";
+
+    JsonSchema schema = new JsonSchema(schemaString);
+    SchemaEntity fieldEntity = new SchemaEntity("object.myfield1",
+        SchemaEntity.EntityType.SR_FIELD);
+
+    // Use same tag "OVERLAP" in both add and remove, plus "EXISTING" in remove
+    Map<SchemaEntity, Set<String>> tagsToAdd = new HashMap<>();
+    tagsToAdd.put(fieldEntity, ImmutableSet.of("OVERLAP", "NEW"));
+    Map<SchemaEntity, Set<String>> tagsToRemove = new HashMap<>();
+    tagsToRemove.put(fieldEntity, ImmutableSet.of("OVERLAP", "EXISTING"));
+
+    // addBeforeRemove=true: add then remove, so OVERLAP is removed (remove wins)
+    ParsedSchema resultAddFirst = schema.copy(tagsToAdd, tagsToRemove, true);
+    Map<SchemaEntity, Set<String>> expectedAddFirst = new HashMap<>();
+    expectedAddFirst.put(fieldEntity, ImmutableSet.of("NEW"));
+    assertEquals(expectedAddFirst, resultAddFirst.inlineTaggedEntities());
+
+    // addBeforeRemove=false: remove then add, so OVERLAP is added (add wins)
+    ParsedSchema resultRemoveFirst = schema.copy(tagsToAdd, tagsToRemove, false);
+    Map<SchemaEntity, Set<String>> expectedRemoveFirst = new HashMap<>();
+    expectedRemoveFirst.put(fieldEntity, ImmutableSet.of("OVERLAP", "NEW"));
+    assertEquals(expectedRemoveFirst, resultRemoveFirst.inlineTaggedEntities());
   }
 
   @Test
@@ -1911,6 +1949,38 @@ public class JsonSchemaTest {
     protected Map<URI, String> getPrepopulatedMappings() {
       return mappings;
     }
+  }
+
+  @Test
+  public void testLenientPolicyWithSimpleAllOf() {
+    String originalSchema = "{\n"
+        + "  \"type\": \"object\",\n"
+        + "  \"allOf\": [\n"
+        + "    {\"properties\": {\"name\": {\"type\": \"string\"}}, \"required\": [\"name\"]},\n"
+        + "    {\"properties\": {\"age\": {\"type\": \"number\"}}}\n"
+        + "  ]\n"
+        + "}";
+
+    // Add optional property to open content model in second subschema
+    String updatedSchema = "{\n"
+        + "  \"type\": \"object\",\n"
+        + "  \"allOf\": [\n"
+        + "    {\"properties\": {\"name\": {\"type\": \"string\"}}, \"required\": [\"name\"]},\n"
+        + "    {\"properties\": {\"age\": {\"type\": \"number\"}, \"email\": {\"type\": \"string\"}}}\n"
+        + "  ]\n"
+        + "}";
+
+    JsonSchema original = new JsonSchema(originalSchema);
+    JsonSchema updated = new JsonSchema(updatedSchema);
+
+    // Strict should reject
+    List<String> strictErrors = updated.isBackwardCompatible(CompatibilityPolicy.STRICT, original);
+    assertFalse("Strict policy should reject", strictErrors.isEmpty());
+
+    // Lenient should allow
+    List<String> lenientErrors = updated.isBackwardCompatible(CompatibilityPolicy.LENIENT, original);
+    assertTrue("Lenient policy should allow adding optional properties. Errors: " + lenientErrors,
+               lenientErrors.isEmpty());
   }
 
   static class TestObj {

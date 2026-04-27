@@ -25,6 +25,7 @@ import io.confluent.kafka.schemaregistry.client.rest.entities.LifecyclePolicy;
 import io.confluent.kafka.schemaregistry.client.rest.entities.SchemaRegistryServerVersion;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchGetRequest;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchRequest;
+
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationBatchResponse;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationCreateOrUpdateRequest;
 import io.confluent.kafka.schemaregistry.client.rest.entities.requests.AssociationResponse;
@@ -380,7 +381,7 @@ public class CachedSchemaRegistryClient implements SchemaRegistryClient {
         SchemaProvider schemaProvider = providers.get(schemaType);
         if (schemaProvider == null) {
           log.error("Invalid schema type {}", schemaType);
-          throw new IllegalStateException("Invalid schema type " + schemaType);
+          throw new IllegalArgumentException("Invalid schema type " + schemaType);
         }
         return schemaProvider.parseSchemaOrElseThrow(schema, false, false);
       });
@@ -1041,6 +1042,13 @@ public class CachedSchemaRegistryClient implements SchemaRegistryClient {
   @Override
   public Config getConfig(String subject) throws IOException, RestClientException {
     return restService.getConfig(subject);
+  }
+
+  @Override
+  public Config getConfig(
+      String subject, boolean defaultToGlobal) 
+      throws IOException, RestClientException {
+    return restService.getConfig(subject, defaultToGlobal);
   }
 
   @Override

@@ -165,8 +165,14 @@ public class AssociationsResource {
     }
     try {
       limit = schemaRegistry.normalizeSchemaLimit(limit);
-      List<Association> associations = schemaRegistry.getAssociationsByResourceName(
-          resourceName, resourceNamespace, resourceType, associationTypes, lifecycle);
+      List<Association> associations;
+      if (SchemaRegistry.RESOURCE_WILDCARD.equals(resourceName)) {
+        associations = schemaRegistry.getAssociationsByResourceNamespace(
+            resourceNamespace, resourceType, associationTypes, lifecycle);
+      } else {
+        associations = schemaRegistry.getAssociationsByResourceName(
+            resourceName, resourceNamespace, resourceType, associationTypes, lifecycle);
+      }
       return associations.stream()
           .skip(offset)
           .limit(limit)
@@ -244,7 +250,7 @@ public class AssociationsResource {
     log.debug("Creating association {}", request);
 
     try {
-      request.validate(dryRun);
+      request.validate(true, dryRun);
     } catch (IllegalPropertyException e) {
       throw Errors.invalidAssociationException(e.getPropertyName(), e.getDetail());
     }
@@ -334,7 +340,7 @@ public class AssociationsResource {
     }
 
     try {
-      request.validate(dryRun);
+      request.validate(false, dryRun);
     } catch (IllegalPropertyException e) {
       throw Errors.invalidAssociationException(e.getPropertyName(), e.getDetail());
     }

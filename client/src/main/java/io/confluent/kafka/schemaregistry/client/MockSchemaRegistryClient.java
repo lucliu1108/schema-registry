@@ -210,7 +210,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
         SchemaProvider schemaProvider = providers.get(schemaType);
         if (schemaProvider == null) {
           log.error("Invalid schema type {}", schemaType);
-          throw new IllegalStateException("Invalid schema type " + schemaType);
+          throw new IllegalArgumentException("Invalid schema type " + schemaType);
         }
         return schemaProvider.parseSchema(schema, false, false).orElseThrow(
             () -> new IOException("Invalid schema of type " + schema.getSchemaType()));
@@ -977,7 +977,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
   }
 
   private void checkExistingAssociationsByResourceId(AssociationCreateOrUpdateRequest request,
-                                                     boolean isCreateOnly)
+                                                     boolean isCreate)
           throws IOException, RestClientException {
     String resourceId = request.getResourceId();
     String resourceType = request.getResourceType();
@@ -1009,13 +1009,13 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
         continue;
       }
       if (existingAssociation.isEquivalent(associationInRequest)) {
-        if (isCreateOnly && schema != null && !schemaExistsInRegistry(subject, schema)) {
+        if (isCreate && schema != null && !schemaExistsInRegistry(subject, schema)) {
           throw new RestClientException(String.format(
                   "An association of type '%s' already exists for resource '%s",
                   associationType, resourceId), 422, 42212);
         }
       } else {
-        if (isCreateOnly) {
+        if (isCreate) {
           throw new RestClientException(String.format(
                   "An association of type '%s' already exists for resource '%s",
                   associationType, resourceId), 422, 42212);
@@ -1135,7 +1135,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
   }
 
   private synchronized AssociationResponse createOrUpdateAssociationHelper(
-      AssociationCreateOrUpdateRequest request, boolean isCreateOnly)
+      AssociationCreateOrUpdateRequest request, boolean isCreate)
       throws IOException, RestClientException {
     // Check that association types are unique
     checkAssociationTypeUniqueness(request);
@@ -1145,7 +1145,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
     checkSubjectExists(request);
 
     // Check whether the resource already has an association
-    checkExistingAssociationsByResourceId(request, isCreateOnly);
+    checkExistingAssociationsByResourceId(request, isCreate);
 
     // Check if subject can accept new association
     checkExistingAssociationsBySubject(request);
@@ -1207,8 +1207,9 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
     return true;
   }
 
-  private void validateAssociationCreateOrUpdateRequest(AssociationCreateOrUpdateRequest request) {
-    request.validate(false);
+  private void validateAssociationRequest(
+      boolean isCreate, AssociationCreateOrUpdateRequest request) {
+    request.validate(isCreate, false);
     // Validate each association
     for (AssociationCreateOrUpdateInfo associationCreateInfo : request.getAssociations()) {
       // Validate resource type and association type
@@ -1224,7 +1225,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
   public AssociationResponse createOrUpdateAssociation(AssociationCreateOrUpdateRequest request)
           throws IOException, RestClientException {
     try {
-      validateAssociationCreateOrUpdateRequest(request);
+      validateAssociationRequest(false, request);
     } catch (Exception e) {
       throw new RestClientException(
               String.format(
@@ -1239,7 +1240,7 @@ public class MockSchemaRegistryClient implements SchemaRegistryClient {
   public AssociationResponse createAssociation(AssociationCreateOrUpdateRequest request)
           throws IOException, RestClientException {
     try {
-      validateAssociationCreateOrUpdateRequest(request);
+      validateAssociationRequest(true, request);
     } catch (Exception e) {
       throw new RestClientException(
               String.format(
