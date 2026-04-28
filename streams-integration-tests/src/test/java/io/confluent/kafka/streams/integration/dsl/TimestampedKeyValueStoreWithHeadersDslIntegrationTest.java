@@ -32,9 +32,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -75,7 +73,6 @@ import org.apache.kafka.streams.state.internals.StateStoreProvider;
 import org.apache.kafka.test.TestUtils;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -188,20 +185,10 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 producer.flush();
             }
 
-            int minExpected = 3;
             int maxExpected = 6;
             List<ConsumerRecord<GenericRecord, Long>> results =
                 consumeRecords(
                     outputTopic, "dsl-count-consumer" + suffix, maxExpected, org.apache.kafka.common.serialization.LongDeserializer.class);
-
-            if (cachingEnabled) {
-                assertTrue(results.size() >= minExpected && results.size() <= maxExpected,
-                    "Output (cached) should have between " + minExpected + " and "
-                        + maxExpected + " records, got " + results.size());
-            } else {
-                assertEquals(maxExpected, results.size(),
-                    "Output (uncached) should have exactly " + maxExpected + " records");
-            }
 
             Map<String, Long> finalCounts = new HashMap<>();
             for (ConsumerRecord<GenericRecord, Long> record : results) {
@@ -236,7 +223,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("hello"), (GenericRecord) null)).get();
+                    createKey("hello"), null)).get();
                 producer.flush();
             }
 
@@ -321,23 +308,10 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 producer.flush();
             }
 
-            // Without caching: 3+5+3 = 11 records (one per word occurrence).
-            // With caching: intermediate results are deduplicated, so we get
-            // between 8 (unique words) and 11 records.
-            int minExpected = 8;
             int maxExpected = 11;
             List<ConsumerRecord<GenericRecord, Long>> results =
                 consumeRecords(
                     outputTopic, "dsl-count-supplier-consumer" + suffix, maxExpected, org.apache.kafka.common.serialization.LongDeserializer.class);
-
-            if (cachingEnabled) {
-                assertTrue(results.size() >= minExpected && results.size() <= maxExpected,
-                    "Output (cached) should have between " + minExpected + " and "
-                        + maxExpected + " records, got " + results.size());
-            } else {
-                assertEquals(maxExpected, results.size(),
-                    "Output (uncached) should have exactly " + maxExpected + " records");
-            }
 
             // Verify final counts from output records
             Map<String, Long> finalCounts = new HashMap<>();
@@ -390,7 +364,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("key1"), (GenericRecord) null)).get();
+                    createKey("key1"), null)).get();
                 producer.flush();
             }
 
@@ -426,7 +400,6 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
         GenericAvroSerde keySerde = createKeySerde();
         GenericAvroSerde valueSerde = createValueSerde();
-        
         GenericAvroSerde aggSerde = createValueSerde();
 
         StreamsBuilder builder = new StreamsBuilder();
@@ -477,20 +450,9 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 producer.flush();
             }
 
-            // Without caching: 6 records (one per input). With caching: 3 (deduplicated per key).
-            int minExpected = 3;
             int maxExpected = 6;
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
                 consumeRecords(outputTopic, "dsl-aggregate-consumer" + suffix, maxExpected, KafkaAvroDeserializer.class);
-
-            if (cachingEnabled) {
-                assertTrue(results.size() >= minExpected && results.size() <= maxExpected,
-                    "Output (cached) should have between " + minExpected + " and "
-                        + maxExpected + " records, got " + results.size());
-            } else {
-                assertEquals(maxExpected, results.size(),
-                    "Output (uncached) should have exactly " + maxExpected + " records");
-            }
 
             // Verify final aggregated counts from output records
             Map<String, Long> finalCounts = new HashMap<>();
@@ -531,7 +493,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("hello"), (GenericRecord) null)).get();
+                    createKey("hello"), null)).get();
                 producer.flush();
             }
             Thread.sleep(2000);
@@ -564,29 +526,31 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals(3L, kafkaRecord.value().get("count"), "IQv1: kafka count should still be 3");
 
             // Changelog verification
-            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
-                consumeRecords(changelogTopic, "dsl-aggregate-changelog-consumer" + suffix, 7, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(changelogRecords.size() >= 4 && changelogRecords.size() <= 7,
-                    "Changelog (cached) should have 4-7 records, got " + changelogRecords.size());
-            } else {
-                assertEquals(7, changelogRecords.size(),
-                    "Changelog (uncached) should have exactly 7 records (6 inserts + 1 tombstone)");
+            List<ConsumerRecord<GenericRecord, GenericRecord>> changelogRecords =
+                consumeRecords(changelogTopic, "dsl-aggregate-changelog-consumer" + suffix, 7, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> lastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                lastByKey.put(r.key().get("word").toString(), r);
             }
+            assertEquals(3, lastByKey.size(), "changelog should have exactly 3 unique keys, got " + lastByKey.keySet());
+            assertEquals(3L, lastByKey.get("kafka").value().get("count"), "changelog kafka final count should be 3");
+            assertEquals(2L, lastByKey.get("streams").value().get("count"), "changelog streams final count should be 2");
+            assertNull(lastByKey.get("hello").value(), "changelog hello final should be tombstoned");
 
-            boolean sawTombstone = false;
-            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
-                String key = record.key() != null ? record.key().get("word").toString() : null;
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), changelogTopic,
-                        "changelog " + key);
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), changelogTopic, "changelog " + key);
                 } else {
-                    sawTombstone = true;
-                    assertTrue("hello".equals(key), "Only 'hello' should be tombstoned, got tombstone for " + record.key());
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic, "changelog tombstone for " + record.key());
+                    assertEquals("hello", key, "Only 'hello' should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), changelogTopic, "changelog tombstone for " + key);
                 }
             }
-            assertTrue(sawTombstone, "changelog should contain a tombstone for hello");
+
+            if (!cachingEnabled) {
+                assertEquals(7, changelogRecords.size(),
+                    "Changelog (uncached) should have exactly 7 records (6 puts + 1 tombstone)");
+            }
         } finally {
             closeStreams(streams);
         }
@@ -636,30 +600,15 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("k1"), createTextLine("first value"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("k1"), createTextLine("second value"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("k2"), createTextLine("only value"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("k1"), createTextLine("first value"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("k1"), createTextLine("second value"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("k2"), createTextLine("only value"))).get();
                 producer.flush();
             }
 
-            // Without caching: 3 records (one per input record).
-            // With caching: 2 records (k1 deduplicated to latest, k2 once).
-            int minExpected = 2;
             int maxExpected = 3;
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
                 consumeRecords(outputTopic, "dsl-reduce-consumer" + suffix, maxExpected, KafkaAvroDeserializer.class);
-
-            if (cachingEnabled) {
-                assertTrue(results.size() >= minExpected && results.size() <= maxExpected,
-                    "Output (cached) should have between " + minExpected + " and "
-                        + maxExpected + " records, got " + results.size());
-            } else {
-                assertEquals(maxExpected, results.size(),
-                    "Output (uncached) should have exactly " + maxExpected + " records");
-            }
 
             // Verify final reduced values from output records
             Map<String, String> finalValues = new HashMap<>();
@@ -696,8 +645,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             // Add a tombstone record for k1, which shouldn't work since "reduce" operation skips null values.
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("k1"), (GenericRecord) null)).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("k1"), null)).get();
                 producer.flush();
             }
             Thread.sleep(2000);
@@ -730,37 +678,31 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("second value", k1Record.value().get("line").toString());
 
             // Changelog verification
-            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
-                consumeRecords(changelogTopic, "dsl-reduce-changelog-consumer" + suffix, 4, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(changelogRecords.size() >= 2 && changelogRecords.size() <= 4,
-                    "Changelog (cached) should have 2-4 records, got "
-                        + changelogRecords.size());
-            } else {
-                assertEquals(4, changelogRecords.size(),
-                    "Changelog (uncached) should have exactly 4 records (3 inserts/reduces + 1 tombstone)");
+            List<ConsumerRecord<GenericRecord, GenericRecord>> changelogRecords =
+                consumeRecords(changelogTopic, "dsl-reduce-changelog-consumer" + suffix, 4, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> lastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                lastByKey.put(r.key().get("word").toString(), r);
             }
+            assertEquals(2, lastByKey.size(), "changelog should have exactly 2 unique keys, got " + lastByKey.keySet());
+            assertEquals("second value", lastByKey.get("k1").value().get("line").toString(),
+                "changelog k1 final value should be 'second value'");
+            assertNull(lastByKey.get("k2").value(), "changelog k2 final should be tombstoned");
 
-            // Verify non-tombstone changelog records have schema ID headers
-            boolean sawTombstone = false;
-            Map<String, byte[]> changelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
-                String key = record.key().get("word").toString();
-                changelogValues.put(key, record.value());
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), changelogTopic, "changelog " + key);
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), changelogTopic, "changelog " + key);
                 } else {
-                    sawTombstone = true;
-                    assertTrue("k2".equals(key), "Only k2 should be tombstoned, got tombstone for " + key);
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic, "changelog tombstone for " + key);
+                    assertEquals("k2", key, "Only k2 should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), changelogTopic, "changelog tombstone for " + key);
                 }
             }
-            assertTrue(sawTombstone, "changelog should contain a tombstone for k2");
-            // Last changelog record for k2 should be a tombstone
-            assertTrue(changelogValues.containsKey("k1"), "Changelog: k1 should appear");
-            assertNotNull(changelogValues.get("k1"), "Changelog: k1 should have a value");
-            assertTrue(changelogValues.containsKey("k2"), "Changelog: k2 should appear");
-            assertNull(changelogValues.get("k2"), "Changelog: k2 shouldn't have a value");
+
+            if (!cachingEnabled) {
+                assertEquals(4, changelogRecords.size(),
+                    "Changelog (uncached) should have exactly 4 records (3 puts + 1 tombstone)");
+            }
 
         } finally {
             closeStreams(streams);
@@ -829,10 +771,8 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("hello"), createTextLine("hello kafka streams"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("streams"), createTextLine("kafka streams"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("hello"), createTextLine("hello kafka streams"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("streams"), createTextLine("kafka streams"))).get();
                 producer.flush();
             }
 
@@ -898,7 +838,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("hello"), (GenericRecord) null)).get();
+                    createKey("hello"), null)).get();
                 producer.flush();
             }
 
@@ -928,70 +868,67 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 assertEquals(13L, (long) streamsMappedRecord.value().get("count"));
             }
 
-            // Changelog verification for the source store.
-            List<ConsumerRecord<GenericRecord, byte[]>> sourceChangelogRecords =
+            // Source changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> sourceChangelogRecords =
                 consumeRecords(sourceChangelogTopic,
-                    "dsl-mapvalues-source-changelog-consumer" + suffix, 3, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(sourceChangelogRecords.size() >= 2 && sourceChangelogRecords.size() <= 3,
-                    "Source changelog (cached) should have 2-3 records, got "
-                        + sourceChangelogRecords.size());
-            } else {
+                    "dsl-mapvalues-source-changelog-consumer" + suffix, 3, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> sourceLastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : sourceChangelogRecords) {
+                sourceLastByKey.put(r.key().get("word").toString(), r);
+            }
+            assertEquals(2, sourceLastByKey.size(),
+                "source changelog should have exactly 2 unique keys, got " + sourceLastByKey.keySet());
+            assertEquals("kafka streams", sourceLastByKey.get("streams").value().get("line").toString(),
+                "source changelog streams final value should be 'kafka streams'");
+            assertNull(sourceLastByKey.get("hello").value(), "source changelog hello final should be tombstoned");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : sourceChangelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), sourceChangelogTopic, "source changelog " + key);
+                } else {
+                    assertEquals("hello", key, "Only hello should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), sourceChangelogTopic, "source changelog tombstone for " + key);
+                }
+            }
+
+            if (!cachingEnabled) {
                 assertEquals(3, sourceChangelogRecords.size(),
                     "Source changelog (uncached) should have exactly 3 records");
             }
 
-            Map<String, byte[]> sourceChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : sourceChangelogRecords) {
-                String key = record.key().get("word").toString();
-                sourceChangelogValues.put(key, record.value());
-                assertKeySchemaIdHeader(record.headers(), sourceChangelogTopic, "source changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), sourceChangelogTopic,
-                        "source changelog non-tombstone " + key);
-                }
-            }
-            assertTrue(sourceChangelogValues.containsKey("hello"),
-                "Source changelog: hello should appear");
-            assertNull(sourceChangelogValues.get("hello"),
-                "Source changelog: hello should end with tombstone");
-            assertTrue(sourceChangelogValues.containsKey("streams"),
-                "Source changelog: streams should appear");
-            assertNotNull(sourceChangelogValues.get("streams"),
-                "Source changelog: streams should have a value");
-
-            // Changelog verification for the mapped store when materalized.
+            // Mapped changelog verification (only if materialized)
             if (materialized) {
-                List<ConsumerRecord<GenericRecord, byte[]>> mappedChangelogRecords =
+                List<ConsumerRecord<GenericRecord, GenericRecord>> mappedChangelogRecords =
                     consumeRecords(mappedChangelogTopic,
-                        "dsl-mapvalues-mapped-changelog-consumer" + suffix, 3, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-                if (cachingEnabled) {
-                    assertTrue(mappedChangelogRecords.size() >= 2 && mappedChangelogRecords.size() <= 3,
-                        "Mapped changelog (cached) should have 2-3 records, got "
-                            + mappedChangelogRecords.size());
-                } else {
+                        "dsl-mapvalues-mapped-changelog-consumer" + suffix, 3, KafkaAvroDeserializer.class);
+                Map<String, ConsumerRecord<GenericRecord, GenericRecord>> mappedLastByKey = new HashMap<>();
+                for (ConsumerRecord<GenericRecord, GenericRecord> r : mappedChangelogRecords) {
+                    mappedLastByKey.put(r.key().get("word").toString(), r);
+                }
+                assertEquals(2, mappedLastByKey.size(),
+                    "mapped changelog should have exactly 2 unique keys, got " + mappedLastByKey.keySet());
+                assertEquals("kafka", mappedLastByKey.get("streams").value().get("firstWord").toString(),
+                    "mapped changelog streams firstWord should be 'kafka'");
+                assertEquals(13L, mappedLastByKey.get("streams").value().get("count"),
+                    "mapped changelog streams count should be 13");
+                assertNull(mappedLastByKey.get("hello").value(),
+                    "mapped changelog hello final should be tombstoned");
+
+                for (ConsumerRecord<GenericRecord, GenericRecord> r : mappedChangelogRecords) {
+                    String key = r.key().get("word").toString();
+                    if (r.value() != null) {
+                        assertSchemaIdHeaders(r.headers(), mappedChangelogTopic, "mapped changelog " + key);
+                    } else {
+                        assertEquals("hello", key, "Only hello should be tombstoned, got tombstone for " + key);
+                        assertKeySchemaIdHeader(r.headers(), mappedChangelogTopic, "mapped changelog tombstone for " + key);
+                    }
+                }
+
+                if (!cachingEnabled) {
                     assertEquals(3, mappedChangelogRecords.size(),
                         "Mapped changelog (uncached) should have exactly 3 records");
                 }
-
-                Map<String, byte[]> mappedChangelogValues = new HashMap<>();
-                for (ConsumerRecord<GenericRecord, byte[]> record : mappedChangelogRecords) {
-                    String key = record.key().get("word").toString();
-                    mappedChangelogValues.put(key, record.value());
-                    assertKeySchemaIdHeader(record.headers(), mappedChangelogTopic, "mapped changelog " + key);
-                    if (record.value() != null) {
-                        assertSchemaIdHeaders(record.headers(), mappedChangelogTopic,
-                            "mapped changelog non-tombstone " + key);
-                    }
-                }
-                assertTrue(mappedChangelogValues.containsKey("hello"),
-                    "Mapped changelog: hello should appear");
-                assertNull(mappedChangelogValues.get("hello"),
-                    "Mapped changelog: hello should end with tombstone");
-                assertTrue(mappedChangelogValues.containsKey("streams"),
-                    "Mapped changelog: streams should appear");
-                assertNotNull(mappedChangelogValues.get("streams"),
-                    "Mapped changelog: streams should have a value");
             }
 
         } finally {
@@ -1045,14 +982,10 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("long"), createTextLine("this is a long long line"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("long2"), createTextLine("this is another long line"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("long3"), createTextLine("this is another long line with kafka"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("short"), createTextLine("line"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("long"), createTextLine("this is a long long line"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("long2"), createTextLine("this is another long line"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("long3"), createTextLine("this is another long line with kafka"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("short"), createTextLine("line"))).get();
                 producer.flush();
             }
 
@@ -1117,7 +1050,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
                 producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("long"), (GenericRecord) null)).get();
+                    createKey("long"), null)).get();
                 producer.flush();
             }
             Thread.sleep(2000);
@@ -1129,68 +1062,68 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertNotNull(long2Record, "filter store: 'long2' should still exist");
             assertSchemaIdHeaders(long2Record.headers(), filterChangelogTopic, "filter store: long2 after tombstone");
 
-            // Changelog verification for source table store
-            List<ConsumerRecord<GenericRecord, byte[]>> sourceChangelogRecords =
+            // Source changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> sourceChangelogRecords =
                 consumeRecords(sourceChangelogTopic,
-                    "dsl-filter-source-changelog-consumer" + suffix, 5, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(sourceChangelogRecords.size() >= 4 && sourceChangelogRecords.size() <= 5,
-                    "Source changelog (cached) should have 4-5 records, got "
-                        + sourceChangelogRecords.size());
-            } else {
+                    "dsl-filter-source-changelog-consumer" + suffix, 5, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> sourceLastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : sourceChangelogRecords) {
+                sourceLastByKey.put(r.key().get("word").toString(), r);
+            }
+            assertEquals(4, sourceLastByKey.size(),
+                "source changelog should have exactly 4 unique keys, got " + sourceLastByKey.keySet());
+            assertNull(sourceLastByKey.get("long").value(),
+                "source changelog long final should be tombstoned");
+            assertEquals("this is another long line", sourceLastByKey.get("long2").value().get("line").toString(),
+                "source changelog long2 final value");
+            assertEquals("this is another long line with kafka", sourceLastByKey.get("long3").value().get("line").toString(),
+                "source changelog long3 final value");
+            assertEquals("line", sourceLastByKey.get("short").value().get("line").toString(),
+                "source changelog short final value");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : sourceChangelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), sourceChangelogTopic, "source changelog " + key);
+                } else {
+                    assertEquals("long", key, "Only 'long' should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), sourceChangelogTopic, "source changelog tombstone for " + key);
+                }
+            }
+
+            if (!cachingEnabled) {
                 assertEquals(5, sourceChangelogRecords.size(),
-                    "Source changelog (uncached) should have exactly 5 records (4 inserts + 1 tombstone)");
+                    "Source changelog (uncached) should have exactly 5 records (4 puts + 1 tombstone)");
             }
 
-            Map<String, byte[]> sourceChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : sourceChangelogRecords) {
-                String key = record.key().get("word").toString();
-                sourceChangelogValues.put(key, record.value());
-                assertKeySchemaIdHeader(record.headers(), sourceChangelogTopic, "source changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), sourceChangelogTopic,
-                        "source changelog non-tombstone " + key);
+            // Filter changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> changelogRecords =
+                consumeRecords(filterChangelogTopic, "dsl-filter-changelog-consumer" + suffix, 3, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> filterLastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                filterLastByKey.put(r.key().get("word").toString(), r);
+            }
+            assertEquals(2, filterLastByKey.size(),
+                "filter changelog should have exactly 2 unique keys, got " + filterLastByKey.keySet());
+            assertNull(filterLastByKey.get("long").value(),
+                "filter changelog long final should be tombstoned");
+            assertEquals("this is another long line", filterLastByKey.get("long2").value().get("line").toString(),
+                "filter changelog long2 final value");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), filterChangelogTopic, "filter changelog " + key);
                 } else {
-                    assertTrue("long".equals(key), "Only 'long' should be tombstoned, got tombstone for " + key);
-                    assertKeySchemaIdHeader(record.headers(), sourceChangelogTopic, "source changelog " + key);
+                    assertEquals("long", key, "Only 'long' should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), filterChangelogTopic, "filter changelog tombstone for " + key);
                 }
             }
-            assertTrue(sourceChangelogValues.containsKey("long"), "Source changelog: long should appear");
-            assertNull(sourceChangelogValues.get("long"), "Source changelog: long should end with tombstone");
-            assertTrue(sourceChangelogValues.containsKey("long2"), "Source changelog: long2 should appear");
-            assertNotNull(sourceChangelogValues.get("long2"),
-                "Source changelog: long2 should have a value");
-            assertTrue(sourceChangelogValues.containsKey("long3"), "Source changelog: long3 should appear (before filter)");
-            assertNotNull(sourceChangelogValues.get("long3"), "Source changelog: long3 should have a value (filters don't affect source)");
-            assertTrue(sourceChangelogValues.containsKey("short"), "Source changelog: short should appear (before filter)");
-            assertNotNull(sourceChangelogValues.get("short"), "Source changelog: short should have a value");
 
-            // Changelog verification for filter store
-            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
-                consumeRecords(filterChangelogTopic, "dsl-filter-changelog-consumer" + suffix, 3, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(changelogRecords.size() >= 2 && changelogRecords.size() <= 3,
-                    "Changelog (cached) should have 2-3 records, got " + changelogRecords.size());
-            } else {
+            if (!cachingEnabled) {
                 assertEquals(3, changelogRecords.size(),
-                    "Changelog (uncached) should have exactly 3 records (2 inserts + 1 tombstone)");
+                    "Filter changelog (uncached) should have exactly 3 records (2 puts + 1 tombstone)");
             }
-
-            Map<String, byte[]> changelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
-                String key = record.key().get("word").toString();
-                changelogValues.put(key, record.value());
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), filterChangelogTopic, "filter changelog " + key);
-                } else {
-                    assertTrue("long".equals(key), "Only 'long' should be tombstoned in filter changelog, got tombstone for " + key);
-                    assertKeySchemaIdHeader(record.headers(), filterChangelogTopic, "filter changelog tombstone for " + key);
-                }
-            }
-            assertTrue(changelogValues.containsKey("long"), "Changelog: long should appear");
-            assertNull(changelogValues.get("long"), "Changelog: long should end with tombstone");
-            assertTrue(changelogValues.containsKey("long2"), "Changelog: long2 should appear");
-            assertNotNull(changelogValues.get("long2"), "Changelog: long2 should have a value");
 
         } finally {
             closeStreams(streams);
@@ -1447,14 +1380,12 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
             ValueTimestampHeaders<GenericRecord> aliceResult = store.get(createKey("alice"));
             assertNotNull(aliceResult, "IQv1 for inner join: alice should exist");
-            assertEquals("Alice Smith, age 30",
-                aliceResult.value().get("line").toString());
+            assertEquals("Alice Smith, age 30", aliceResult.value().get("line").toString());
             assertSchemaIdHeaders(aliceResult.headers(), innerChangelogTopic, "IQv1 inner join get alice");
 
             ValueTimestampHeaders<GenericRecord> bobResult = store.get(createKey("bob"));
             assertNotNull(bobResult, "IQv1 for inner join: bob should exist");
-            assertEquals("Bob Jones, age 25",
-                bobResult.value().get("line").toString());
+            assertEquals("Bob Jones, age 25", bobResult.value().get("line").toString());
             assertSchemaIdHeaders(bobResult.headers(), innerChangelogTopic, "IQv1 inner join get bob");
 
             ValueTimestampHeaders<GenericRecord> carol = store.get(createKey("carol"));
@@ -1604,53 +1535,62 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertEquals("Bob Jones, age 0", bobOuterNullJoin.value().get("line").toString(),
                 "IQv1 outer join: bob should have age 0");
 
-            // Changelog verification for inner join store
-            List<ConsumerRecord<GenericRecord, byte[]>> innerChangelogRecords =
-                consumeRecords(innerChangelogTopic, "dsl-join-inner-changelog-consumer" + suffix, 4, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(innerChangelogRecords.size() >= 2 && innerChangelogRecords.size() <= 4,
-                    "Inner join changelog (cached) should have 2-4 records, got "
-                        + innerChangelogRecords.size());
-            } else {
-                assertEquals(4, innerChangelogRecords.size(),
-                    "Inner join changelog (uncached) should have exactly 4 records (2 inserts + 2 tombstones)");
+            // Inner join changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> innerChangelogRecords =
+                consumeRecords(innerChangelogTopic, "dsl-join-inner-changelog-consumer" + suffix, 4, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> innerLastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : innerChangelogRecords) {
+                innerLastByKey.put(r.key().get("word").toString(), r);
             }
+            assertEquals(2, innerLastByKey.size(),
+                "inner join changelog should have exactly 2 unique keys, got " + innerLastByKey.keySet());
+            assertNull(innerLastByKey.get("alice").value(),
+                "inner join changelog alice final should be tombstoned");
+            assertNull(innerLastByKey.get("bob").value(),
+                "inner join changelog bob final should be tombstoned");
 
-            Map<String, byte[]> innerChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : innerChangelogRecords) {
-                String key = record.key().get("word").toString();
-                innerChangelogValues.put(key, record.value());
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), innerChangelogTopic, "inner join changelog " + key);
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : innerChangelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), innerChangelogTopic, "inner join changelog " + key);
+                } else {
+                    assertKeySchemaIdHeader(r.headers(), innerChangelogTopic, "inner join changelog tombstone for " + key);
                 }
             }
-            assertTrue(innerChangelogValues.containsKey("alice"),
-                "Inner join changelog: alice should appear");
-            assertNull(innerChangelogValues.get("alice"),
-                "Inner join changelog: alice should end with tombstone");
-            assertTrue(innerChangelogValues.containsKey("bob"),
-                "Inner join changelog: bob should appear");
-            assertNull(innerChangelogValues.get("bob"),
-                "Inner join changelog: bob should end with tombstone after null join");
 
-            // Changelog verification for left join store.
-            // Uncached: 3 name emits + 2 age emits + 1 alice-tombstone re-emit + 1 bob-age-0 re-emit = 7.
-            List<ConsumerRecord<GenericRecord, byte[]>> leftChangelogRecords =
-                consumeRecords(leftChangelogTopic, "dsl-join-left-changelog-consumer" + suffix, 7, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(leftChangelogRecords.size() >= 3 && leftChangelogRecords.size() <= 7,
-                    "Left join changelog (cached) should have 3-7 records, got "
-                        + leftChangelogRecords.size());
-            } else {
+            if (!cachingEnabled) {
+                assertEquals(4, innerChangelogRecords.size(),
+                    "Inner join changelog (uncached) should have exactly 4 records (2 puts + 2 tombstones)");
+            }
+
+            // Left join changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> leftChangelogRecords =
+                consumeRecords(leftChangelogTopic, "dsl-join-left-changelog-consumer" + suffix, 7, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> leftLastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : leftChangelogRecords) {
+                leftLastByKey.put(r.key().get("word").toString(), r);
+            }
+            assertEquals(3, leftLastByKey.size(),
+                "left join changelog should have exactly 3 unique keys, got " + leftLastByKey.keySet());
+            assertEquals("Alice Smith, age unknown", leftLastByKey.get("alice").value().get("line").toString(),
+                "left join changelog alice final value");
+            assertEquals("Bob Jones, age 0", leftLastByKey.get("bob").value().get("line").toString(),
+                "left join changelog bob final value");
+            assertEquals("Carol White, age unknown", leftLastByKey.get("carol").value().get("line").toString(),
+                "left join changelog carol final value");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : leftChangelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), leftChangelogTopic, "left join changelog " + key);
+                } else {
+                    assertKeySchemaIdHeader(r.headers(), leftChangelogTopic, "left join changelog tombstone for " + key);
+                }
+            }
+
+            if (!cachingEnabled) {
                 assertEquals(7, leftChangelogRecords.size(),
                     "Left join changelog (uncached) should have exactly 7 records");
-            }
-
-            // Verify non-tombstone records have headers
-            for (ConsumerRecord<GenericRecord, byte[]> record : leftChangelogRecords) {
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), leftChangelogTopic, "left join changelog " + record.key().get("word"));
-                }
             }
 
         } finally {
@@ -1813,67 +1753,67 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertNotNull(daveRecord, "IQv1: dave should still exist in store2");
             assertEquals("dave table 2", daveRecord.value().get("line").toString());
 
-            // Changelog verification for store1 — writes: alice, bob, alice (update), alice (tombstone).
-            List<ConsumerRecord<GenericRecord, byte[]>> store1Changelog =
+            // Store1 changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> store1Changelog =
                 consumeRecords(changelogTopic1,
-                    "dsl-merge-store1-changelog-consumer" + suffix, 4, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(store1Changelog.size() >= 2 && store1Changelog.size() <= 4,
-                    "Store1 changelog (cached) should have 2-4 records, got "
-                        + store1Changelog.size());
-            } else {
-                assertEquals(4, store1Changelog.size(),
-                    "Store1 changelog (uncached) should have exactly 4 records");
+                    "dsl-merge-store1-changelog-consumer" + suffix, 4, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> store1LastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : store1Changelog) {
+                store1LastByKey.put(r.key().get("word").toString(), r);
             }
+            assertEquals(2, store1LastByKey.size(),
+                "store1 changelog should have exactly 2 unique keys, got " + store1LastByKey.keySet());
+            assertNull(store1LastByKey.get("alice").value(),
+                "store1 changelog alice final should be tombstoned");
+            assertEquals("bob table 1", store1LastByKey.get("bob").value().get("line").toString(),
+                "store1 changelog bob final value");
 
-            Map<String, byte[]> store1ChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : store1Changelog) {
-                String key = record.key().get("word").toString();
-                store1ChangelogValues.put(key, record.value());
-                assertKeySchemaIdHeader(record.headers(), changelogTopic1, "store1 changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), changelogTopic1,
-                        "store1 changelog non-tombstone " + key);
-                }
-            }
-            assertTrue(store1ChangelogValues.containsKey("alice"), "Store1 changelog: alice should appear");
-            assertNull(store1ChangelogValues.get("alice"), "Store1 changelog: alice should end with tombstone");
-            assertTrue(store1ChangelogValues.containsKey("bob"), "Store1 changelog: bob should appear");
-            assertNotNull(store1ChangelogValues.get("bob"), "Store1 changelog: bob should have a value");
-
-            // Changelog verification for store2 — writes: bob, carol, dave, carol (tombstone).
-            List<ConsumerRecord<GenericRecord, byte[]>> store2Changelog =
-                consumeRecords(changelogTopic2,
-                    "dsl-merge-store2-changelog-consumer" + suffix, 4, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(store2Changelog.size() >= 3 && store2Changelog.size() <= 4,
-                    "Store2 changelog (cached) should have 3-4 records, got "
-                        + store2Changelog.size());
-            } else {
-                assertEquals(4, store2Changelog.size(),
-                    "Store2 changelog (uncached) should have exactly 4 records");
-            }
-
-            Map<String, byte[]> store2ChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : store2Changelog) {
-                String key = record.key().get("word").toString();
-                store2ChangelogValues.put(key, record.value());
-                assertKeySchemaIdHeader(record.headers(), changelogTopic2, "store2 changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), changelogTopic2,
-                        "store2 changelog non-tombstone " + key);
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : store1Changelog) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), changelogTopic1, "store1 changelog " + key);
                 } else {
-                    assertTrue("alice".equals(key) || "carol".equals(key),
-                        "Only alice or carol should be tombstoned in store2 changelog");
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic2, "store2 changelog " + key);
+                    assertEquals("alice", key, "Only alice should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), changelogTopic1, "store1 changelog tombstone for " + key);
                 }
             }
-            assertTrue(store2ChangelogValues.containsKey("carol"), "Store2 changelog: carol should appear");
-            assertNull(store2ChangelogValues.get("carol"), "Store2 changelog: carol should end with tombstone");
-            assertTrue(store2ChangelogValues.containsKey("bob"), "Store2 changelog: bob should appear");
-            assertNotNull(store2ChangelogValues.get("bob"), "Store2 changelog: bob should have a value");
-            assertTrue(store2ChangelogValues.containsKey("dave"), "Store2 changelog: dave should appear");
-            assertNotNull(store2ChangelogValues.get("dave"), "Store2 changelog: dave should have a value");
+
+            if (!cachingEnabled) {
+                assertEquals(4, store1Changelog.size(),
+                    "Store1 changelog (uncached) should have exactly 4 records (3 puts + 1 tombstone)");
+            }
+
+            // Store2 changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> store2Changelog =
+                consumeRecords(changelogTopic2,
+                    "dsl-merge-store2-changelog-consumer" + suffix, 4, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> store2LastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : store2Changelog) {
+                store2LastByKey.put(r.key().get("word").toString(), r);
+            }
+            assertEquals(3, store2LastByKey.size(),
+                "store2 changelog should have exactly 3 unique keys, got " + store2LastByKey.keySet());
+            assertEquals("bob table 2", store2LastByKey.get("bob").value().get("line").toString(),
+                "store2 changelog bob final value");
+            assertNull(store2LastByKey.get("carol").value(),
+                "store2 changelog carol final should be tombstoned");
+            assertEquals("dave table 2", store2LastByKey.get("dave").value().get("line").toString(),
+                "store2 changelog dave final value");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : store2Changelog) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), changelogTopic2, "store2 changelog " + key);
+                } else {
+                    assertEquals("carol", key, "Only carol should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), changelogTopic2, "store2 changelog tombstone for " + key);
+                }
+            }
+
+            if (!cachingEnabled) {
+                assertEquals(4, store2Changelog.size(),
+                    "Store2 changelog (uncached) should have exactly 4 records (3 puts + 1 tombstone)");
+            }
 
         } finally {
             closeStreams(streams);
@@ -2054,70 +1994,68 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 assertEquals(13L, (long) streamsTransformedRecord.value().get("count"));
             }
 
-            // Changelog verification for the source store.
-            List<ConsumerRecord<GenericRecord, byte[]>> sourceChangelogRecords =
+            // Source changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> sourceChangelogRecords =
                 consumeRecords(sourceChangelogTopic,
-                    "dsl-transform-source-changelog-consumer" + suffix, 3, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(sourceChangelogRecords.size() >= 2 && sourceChangelogRecords.size() <= 3,
-                    "Source changelog (cached) should have 2-3 records, got "
-                        + sourceChangelogRecords.size());
-            } else {
+                    "dsl-transform-source-changelog-consumer" + suffix, 3, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> sourceLastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : sourceChangelogRecords) {
+                sourceLastByKey.put(r.key().get("word").toString(), r);
+            }
+            assertEquals(2, sourceLastByKey.size(),
+                "source changelog should have exactly 2 unique keys, got " + sourceLastByKey.keySet());
+            assertNull(sourceLastByKey.get("hello").value(),
+                "source changelog hello final should be tombstoned");
+            assertEquals("kafka streams", sourceLastByKey.get("streams").value().get("line").toString(),
+                "source changelog streams final value");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : sourceChangelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), sourceChangelogTopic, "source changelog " + key);
+                } else {
+                    assertEquals("hello", key, "Only hello should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), sourceChangelogTopic, "source changelog tombstone for " + key);
+                }
+            }
+
+            if (!cachingEnabled) {
                 assertEquals(3, sourceChangelogRecords.size(),
                     "Source changelog (uncached) should have exactly 3 records");
             }
 
-            Map<String, byte[]> sourceChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : sourceChangelogRecords) {
-                String key = record.key().get("word").toString();
-                sourceChangelogValues.put(key, record.value());
-                assertKeySchemaIdHeader(record.headers(), sourceChangelogTopic, "source changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), sourceChangelogTopic,
-                        "source changelog non-tombstone " + key);
-                }
-            }
-            assertTrue(sourceChangelogValues.containsKey("hello"),
-                "Source changelog: hello should appear");
-            assertNull(sourceChangelogValues.get("hello"),
-                "Source changelog: hello should end with tombstone");
-            assertTrue(sourceChangelogValues.containsKey("streams"),
-                "Source changelog: streams should appear");
-            assertNotNull(sourceChangelogValues.get("streams"),
-                "Source changelog: streams should have a value");
-
-            // Changelog verification for the transform store when materialized.
+            // Transform changelog verification (only if materialized)
             if (materialized) {
-                List<ConsumerRecord<GenericRecord, byte[]>> transformChangelogRecords =
+                List<ConsumerRecord<GenericRecord, GenericRecord>> transformChangelogRecords =
                     consumeRecords(transformChangelogTopic,
-                        "dsl-transform-output-changelog-consumer" + suffix, 3, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-                if (cachingEnabled) {
-                    assertTrue(transformChangelogRecords.size() >= 2 && transformChangelogRecords.size() <= 3,
-                        "Transform changelog (cached) should have 2-3 records, got "
-                            + transformChangelogRecords.size());
-                } else {
+                        "dsl-transform-output-changelog-consumer" + suffix, 3, KafkaAvroDeserializer.class);
+                Map<String, ConsumerRecord<GenericRecord, GenericRecord>> transformLastByKey = new HashMap<>();
+                for (ConsumerRecord<GenericRecord, GenericRecord> r : transformChangelogRecords) {
+                    transformLastByKey.put(r.key().get("word").toString(), r);
+                }
+                assertEquals(2, transformLastByKey.size(),
+                    "transform changelog should have exactly 2 unique keys, got " + transformLastByKey.keySet());
+                assertNull(transformLastByKey.get("hello").value(),
+                    "transform changelog hello final should be tombstoned");
+                assertEquals("kafka", transformLastByKey.get("streams").value().get("firstWord").toString(),
+                    "transform changelog streams firstWord should be 'kafka'");
+                assertEquals(13L, transformLastByKey.get("streams").value().get("count"),
+                    "transform changelog streams count should be 13");
+
+                for (ConsumerRecord<GenericRecord, GenericRecord> r : transformChangelogRecords) {
+                    String key = r.key().get("word").toString();
+                    if (r.value() != null) {
+                        assertSchemaIdHeaders(r.headers(), transformChangelogTopic, "transform changelog " + key);
+                    } else {
+                        assertEquals("hello", key, "Only hello should be tombstoned, got tombstone for " + key);
+                        assertKeySchemaIdHeader(r.headers(), transformChangelogTopic, "transform changelog tombstone for " + key);
+                    }
+                }
+
+                if (!cachingEnabled) {
                     assertEquals(3, transformChangelogRecords.size(),
                         "Transform changelog (uncached) should have exactly 3 records");
                 }
-
-                Map<String, byte[]> transformChangelogValues = new HashMap<>();
-                for (ConsumerRecord<GenericRecord, byte[]> record : transformChangelogRecords) {
-                    String key = record.key().get("word").toString();
-                    transformChangelogValues.put(key, record.value());
-                    assertKeySchemaIdHeader(record.headers(), transformChangelogTopic, "transform changelog " + key);
-                    if (record.value() != null) {
-                        assertSchemaIdHeaders(record.headers(), transformChangelogTopic,
-                            "transform changelog non-tombstone " + key);
-                    }
-                }
-                assertTrue(transformChangelogValues.containsKey("hello"),
-                    "Transform changelog: hello should appear");
-                assertNull(transformChangelogValues.get("hello"),
-                    "Transform changelog: hello should end with tombstone");
-                assertTrue(transformChangelogValues.containsKey("streams"),
-                    "Transform changelog: streams should appear");
-                assertNotNull(transformChangelogValues.get("streams"),
-                    "Transform changelog: streams should have a value");
             }
 
         } finally {
@@ -2281,17 +2219,27 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertSchemaIdHeaders(zzGet.headers(), changelogTopic, "IQv1 get zz");
 
             // Changelog verification — 3 distinct keys, no tombstones → count is deterministic regardless of caching.
-            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
-                consumeRecords(changelogTopic, "dsl-prefixscan-changelog-consumer" + suffix, 3, org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            assertEquals(3, changelogRecords.size(),
-                "Changelog should have exactly 3 records");
-
-            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), changelogTopic,
-                        "changelog " + record.key().get("word"));
-                }
+            List<ConsumerRecord<GenericRecord, GenericRecord>> changelogRecords =
+                consumeRecords(changelogTopic, "dsl-prefixscan-changelog-consumer" + suffix, 3, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> lastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                lastByKey.put(r.key().get("word").toString(), r);
             }
+            assertEquals(3, lastByKey.size(),
+                "changelog should have exactly 3 unique keys, got " + lastByKey.keySet());
+            assertEquals("value ka", lastByKey.get("ka").value().get("line").toString(),
+                "changelog ka final value");
+            assertEquals("value kb", lastByKey.get("kb").value().get("line").toString(),
+                "changelog kb final value");
+            assertEquals("value zz", lastByKey.get("zz").value().get("line").toString(),
+                "changelog zz final value");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                assertNotNull(r.value(), "no tombstones expected in this changelog");
+                assertSchemaIdHeaders(r.headers(), changelogTopic, "changelog " + r.key().get("word"));
+            }
+
+            assertEquals(3, changelogRecords.size(), "Changelog should have exactly 3 records");
 
         } finally {
             closeStreams(streams);
@@ -2390,22 +2338,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 10_000,
                 "store: hello should be tombstoned");
 
-            // Without caching: 5 records (one per input).
-            // With caching: same-key writes collapse → 3-5 records.
-            int minExpected = 3;
-            int maxExpected = 5;
-            results = consumeRecords(outputTopic,
-                    "dsl-stream-totable-phase2-" + suffix + "-" + System.nanoTime(),
-                    maxExpected, KafkaAvroDeserializer.class);
-
-            if (cachingEnabled) {
-                assertTrue(results.size() >= minExpected && results.size() <= maxExpected,
-                    "Output (cached) should have between " + minExpected + " and "
-                        + maxExpected + " records, got " + results.size());
-            } else {
-                assertEquals(maxExpected, results.size(),
-                    "Output (uncached) should have exactly " + maxExpected + " records");
-            }
+            results = consumeRecords(outputTopic, "dsl-stream-totable-phase2-" + suffix + "-" + System.nanoTime(), 5, KafkaAvroDeserializer.class);
 
             // Last write wins per key in the resulting table.
             Map<String, GenericRecord> finalValues = new HashMap<>();
@@ -2547,19 +2480,8 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 producer.flush();
             }
 
-            int minExpected = 4;
-            int maxExpected = 7;
             List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(outputTopic, "dsl-kstream-cogroup-consumer" + suffix, maxExpected, KafkaAvroDeserializer.class);
-
-            if (cachingEnabled) {
-                assertTrue(results.size() >= minExpected && results.size() <= maxExpected,
-                    "Output (cached) should have between " + minExpected + " and "
-                        + maxExpected + " records, got " + results.size());
-            } else {
-                assertEquals(maxExpected, results.size(),
-                    "Output (uncached) should have exactly " + maxExpected + " records");
-            }
+                consumeRecords(outputTopic, "dsl-kstream-cogroup-consumer" + suffix, 7, KafkaAvroDeserializer.class);
 
             Map<String, Long> finalCounts = new HashMap<>();
             for (ConsumerRecord<GenericRecord, GenericRecord> record : results) {
@@ -2629,35 +2551,38 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 "IQv1: hi count should still be 1 after DELETE");
             assertSchemaIdHeaders(hiAfter.headers(), changelogTopic, "IQv1 get hi post-tombstone");
 
-            int minChangelogExpected = 4;
-            int maxChangelogExpected = 8;
-            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
+            // Changelog verification
+            List<ConsumerRecord<GenericRecord, GenericRecord>> changelogRecords =
                 consumeRecords(changelogTopic,
-                    "dsl-kstream-cogroup-changelog-consumer" + suffix, maxChangelogExpected,
-                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(changelogRecords.size() >= minChangelogExpected
-                        && changelogRecords.size() <= maxChangelogExpected,
-                    "Changelog (cached) should have " + minChangelogExpected + "-"
-                        + maxChangelogExpected + " records, got " + changelogRecords.size());
-            } else {
-                assertEquals(maxChangelogExpected, changelogRecords.size(),
-                    "Changelog (uncached) should have exactly " + maxChangelogExpected + " records");
+                    "dsl-kstream-cogroup-changelog-consumer" + suffix, 8, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> lastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                lastByKey.put(r.key().get("word").toString(), r);
             }
+            assertEquals(4, lastByKey.size(),
+                "changelog should have exactly 4 unique keys, got " + lastByKey.keySet());
+            assertNull(lastByKey.get("kafka").value(), "changelog kafka final should be tombstoned");
+            assertEquals(2L, lastByKey.get("streams").value().get("count"),
+                "changelog streams final count should be 2");
+            assertEquals(1L, lastByKey.get("hello").value().get("count"),
+                "changelog hello final count should be 1");
+            assertEquals(1L, lastByKey.get("hi").value().get("count"),
+                "changelog hi final count should be 1");
 
-            Set<String> changelogKeys = new HashSet<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
-                String key = record.key().get("word").toString();
-                changelogKeys.add(key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), changelogTopic, "changelog " + key);
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : changelogRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), changelogTopic, "changelog " + key);
                 } else {
-                    assertEquals("kafka", key, "only kafka should be tombstoned in changelog");
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic, "changelog tombstone " + key);
+                    assertEquals("kafka", key, "Only kafka should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), changelogTopic, "changelog tombstone for " + key);
                 }
             }
-            assertTrue(changelogKeys.containsAll(Arrays.asList("kafka", "streams", "hello", "hi")),
-                "changelog should contain records for kafka, streams, hello, hi; got " + changelogKeys);
+
+            if (!cachingEnabled) {
+                assertEquals(8, changelogRecords.size(),
+                    "Changelog (uncached) should have exactly 8 records (7 puts + 1 tombstone)");
+            }
 
         } finally {
             closeStreams(streams);
@@ -2696,12 +2621,9 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
 
             try (KafkaProducer<GenericRecord, GenericRecord> producer =
                      new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("alice"), createTextLine("alice value"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("bob"), createTextLine("bob value"))).get();
-                producer.send(new ProducerRecord<>(inputTopic,
-                    createKey("carol"), createTextLine("carol value"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("alice"), createTextLine("alice value"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("bob"), createTextLine("bob value"))).get();
+                producer.send(new ProducerRecord<>(inputTopic, createKey("carol"), createTextLine("carol value"))).get();
                 producer.flush();
             }
 
@@ -2790,6 +2712,35 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
             assertNotNull(carolAfter, "global store: carol should still exist");
             assertEquals("carol value", carolAfter.value().get("line").toString());
             assertSchemaIdHeaders(carolAfter.headers(), inputTopic, "global store: carol");
+
+            // Input topic verification (acts as the changelog for global tables)
+            List<ConsumerRecord<GenericRecord, GenericRecord>> inputRecords =
+                consumeRecords(inputTopic, "dsl-globaltable-input-consumer" + suffix, 6, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> lastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : inputRecords) {
+                lastByKey.put(r.key().get("word").toString(), r);
+            }
+            assertEquals(3, lastByKey.size(),
+                "input topic should have exactly 3 unique keys, got " + lastByKey.keySet());
+            assertEquals("alice value 2", lastByKey.get("alice").value().get("line").toString(),
+                "input topic alice final value");
+            assertEquals("bob value 2", lastByKey.get("bob").value().get("line").toString(),
+                "input topic bob final value");
+            assertEquals("carol value", lastByKey.get("carol").value().get("line").toString(),
+                "input topic carol final value");
+
+            for (ConsumerRecord<GenericRecord, GenericRecord> r : inputRecords) {
+                String key = r.key().get("word").toString();
+                if (r.value() != null) {
+                    assertSchemaIdHeaders(r.headers(), inputTopic, "input " + key);
+                } else {
+                    assertEquals("alice", key, "Only alice should be tombstoned, got tombstone for " + key);
+                    assertKeySchemaIdHeader(r.headers(), inputTopic, "input tombstone for " + key);
+                }
+            }
+
+            assertEquals(6, inputRecords.size(),
+                "Input topic should have exactly 6 records (5 puts + 1 tombstone)");
 
         } finally {
             closeStreams(streams);
@@ -2938,37 +2889,32 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 "IQv1: hello count should still be 1 after tombstone");
             assertKeySchemaIdHeader(helloAfter.headers(), inputTopic, "IQv1 get hello post-tombstone");
 
-            int minChangelogExpected = 4;
-            int maxChangelogExpected = 7;
-            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
-                consumeRecords(changelogTopic,
-                    "dsl-process-changelog-consumer" + suffix, maxChangelogExpected,
-                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(changelogRecords.size() >= minChangelogExpected
-                        && changelogRecords.size() <= maxChangelogExpected,
-                    "Changelog (cached) should have " + minChangelogExpected + "-"
-                        + maxChangelogExpected + " records, got " + changelogRecords.size());
-            } else {
-                assertEquals(maxChangelogExpected, changelogRecords.size(),
-                    "Changelog (uncached) should have exactly " + maxChangelogExpected + " records");
+            // Changelog verification
+            List<ConsumerRecord<GenericRecord, Long>> changelogRecords =
+                consumeRecords(changelogTopic, "dsl-process-changelog-consumer" + suffix, 7,
+                    org.apache.kafka.common.serialization.LongDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, Long>> lastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, Long> r : changelogRecords) {
+                lastByKey.put(r.key().get("word").toString(), r);
             }
-            boolean sawTombstone = false;
-            Set<String> changelogKeys = new HashSet<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
-                String key = record.key().get("word").toString();
-                changelogKeys.add(key);
-                if (record.value() != null) {
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic, "changelog " + key);
-                } else {
-                    sawTombstone = true;
-                    assertEquals("kafka", key, "only kafka should be tombstoned");
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic, "changelog tombstone " + key);
+            assertEquals(3, lastByKey.size(),
+                "changelog should have exactly 3 unique keys, got " + lastByKey.keySet());
+            assertNull(lastByKey.get("kafka").value(), "changelog kafka final should be tombstoned");
+            assertEquals(2L, lastByKey.get("streams").value(), "changelog streams final count should be 2");
+            assertEquals(1L, lastByKey.get("hello").value(), "changelog hello final count should be 1");
+
+            for (ConsumerRecord<GenericRecord, Long> r : changelogRecords) {
+                String key = r.key().get("word").toString();
+                assertKeySchemaIdHeader(r.headers(), changelogTopic, "changelog " + key);
+                if (r.value() == null) {
+                    assertEquals("kafka", key, "Only kafka should be tombstoned, got tombstone for " + key);
                 }
             }
-            assertTrue(sawTombstone, "changelog should contain a tombstone for kafka");
-            assertTrue(changelogKeys.containsAll(Arrays.asList("kafka", "streams", "hello")),
-                "changelog should contain records for kafka, streams, hello; got " + changelogKeys);
+
+            if (!cachingEnabled) {
+                assertEquals(7, changelogRecords.size(),
+                    "Changelog (uncached) should have exactly 7 records (6 puts + 1 tombstone)");
+            }
 
         } finally {
             closeStreams(streams);
@@ -3115,37 +3061,32 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
                 "IQv1: hello count should still be 1 after tombstone");
             assertKeySchemaIdHeader(helloAfter.headers(), inputTopic, "IQv1 get hello post-tombstone");
 
-            int minChangelogExpected = 4;
-            int maxChangelogExpected = 7;
-            List<ConsumerRecord<GenericRecord, byte[]>> changelogRecords =
-                consumeRecords(changelogTopic,
-                    "dsl-processvalues-changelog-consumer" + suffix, maxChangelogExpected,
-                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-            if (cachingEnabled) {
-                assertTrue(changelogRecords.size() >= minChangelogExpected
-                        && changelogRecords.size() <= maxChangelogExpected,
-                    "Changelog (cached) should have " + minChangelogExpected + "-"
-                        + maxChangelogExpected + " records, got " + changelogRecords.size());
-            } else {
-                assertEquals(maxChangelogExpected, changelogRecords.size(),
-                    "Changelog (uncached) should have exactly " + maxChangelogExpected + " records");
+            // Changelog verification
+            List<ConsumerRecord<GenericRecord, Long>> changelogRecords =
+                consumeRecords(changelogTopic, "dsl-processvalues-changelog-consumer" + suffix, 7,
+                    org.apache.kafka.common.serialization.LongDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, Long>> lastByKey = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, Long> r : changelogRecords) {
+                lastByKey.put(r.key().get("word").toString(), r);
             }
-            boolean sawTombstone = false;
-            Set<String> changelogKeys = new HashSet<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : changelogRecords) {
-                String key = record.key().get("word").toString();
-                changelogKeys.add(key);
-                if (record.value() != null) {
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic, "changelog " + key);
-                } else {
-                    sawTombstone = true;
-                    assertEquals("kafka", key, "only kafka should be tombstoned");
-                    assertKeySchemaIdHeader(record.headers(), changelogTopic, "changelog tombstone " + key);
+            assertEquals(3, lastByKey.size(),
+                "changelog should have exactly 3 unique keys, got " + lastByKey.keySet());
+            assertNull(lastByKey.get("kafka").value(), "changelog kafka final should be tombstoned");
+            assertEquals(2L, lastByKey.get("streams").value(), "changelog streams final count should be 2");
+            assertEquals(1L, lastByKey.get("hello").value(), "changelog hello final count should be 1");
+
+            for (ConsumerRecord<GenericRecord, Long> r : changelogRecords) {
+                String key = r.key().get("word").toString();
+                assertKeySchemaIdHeader(r.headers(), changelogTopic, "changelog " + key);
+                if (r.value() == null) {
+                    assertEquals("kafka", key, "Only kafka should be tombstoned, got tombstone for " + key);
                 }
             }
-            assertTrue(sawTombstone, "changelog should contain a tombstone for kafka");
-            assertTrue(changelogKeys.containsAll(Arrays.asList("kafka", "streams", "hello")),
-                "changelog should contain records for kafka, streams, hello; got " + changelogKeys);
+
+            if (!cachingEnabled) {
+                assertEquals(7, changelogRecords.size(),
+                    "Changelog (uncached) should have exactly 7 records (6 puts + 1 tombstone)");
+            }
 
         } finally {
             closeStreams(streams);
@@ -3885,6 +3826,7 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Clust
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, valueDeserializerClass.getName());
         props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
+        props.put(StreamsConfig.DSL_STORE_FORMAT_CONFIG, StreamsConfig.DSL_STORE_FORMAT_HEADERS);
         props.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, false);
 
         List<ConsumerRecord<GenericRecord, V>> results = new ArrayList<>();
