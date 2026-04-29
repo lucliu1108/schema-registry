@@ -167,6 +167,7 @@ abstract class TimestampedKeyValueStoreDslTestBase extends ClusterTestHarness {
         props.put(StreamsConfig.APPLICATION_ID_CONFIG, appId);
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
         props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
+        props.put(StreamsConfig.DSL_STORE_FORMAT_CONFIG, StreamsConfig.DSL_STORE_FORMAT_HEADERS);
         props.put(StreamsConfig.STATE_DIR_CONFIG,
             System.getProperty("java.io.tmpdir") + "/kafka-streams-" + appId + "-" + UUID.randomUUID());
         if (cachingEnabled) {
@@ -319,7 +320,6 @@ abstract class TimestampedKeyValueStoreDslTestBase extends ClusterTestHarness {
         props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
         props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, valueDeserializerClass.getName());
         props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        props.put(StreamsConfig.DSL_STORE_FORMAT_CONFIG, StreamsConfig.DSL_STORE_FORMAT_HEADERS);
         props.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, false);
 
         List<ConsumerRecord<GenericRecord, V>> results = new ArrayList<>();

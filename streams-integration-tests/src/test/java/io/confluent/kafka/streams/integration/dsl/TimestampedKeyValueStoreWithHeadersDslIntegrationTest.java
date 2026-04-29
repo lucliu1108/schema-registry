@@ -2917,6 +2917,370 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Times
     }
 
     /**
+     * Verifies foreign-key KTable-KTable join works correctly with headers-aware stores.
+     *
+     * <p>Names table: key=person, value.line=FK string into the ages table.
+     * Ages table: key=FK string, value.line=age value.
+     * Joiner emits "FK string, age VALUE". Because names values carry only the FK (no
+     * actual person name), joined results read like "age30, age 30".
+     *
+     * <p>Test steps:
+     * <ol>
+     *   <li>initial population (3 join emissions),</li>
+     *   <li>FK re-route (carol changes FK target from age30 → age25),</li>
+     *   <li>FK target value update (age30 → "31", refreshes alice),</li>
+     *   <li>FK target tombstone (delete age30, tombstones alice),</li>
+     *   <li>names-side tombstone (delete bob from names, tombstones bob),</li>
+     *   <li>null-joiner tombstone (age25 → "0", joiner returns null, tombstones carol).</li>
+     * </ol>
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void shouldForeignKeyJoinWithHeaders(boolean cachingEnabled) throws Exception {
+        String suffix = suffixOf(cachingEnabled);
+        String namesTopic = "dsl-fkjoin-names" + suffix;
+        String agesTopic = "dsl-fkjoin-ages" + suffix;
+        String outputTopic = "dsl-fkjoin-output" + suffix;
+        String namesStoreName = "dsl-fkjoin-names-store" + suffix;
+        String agesStoreName = "dsl-fkjoin-ages-store" + suffix;
+        String joinStoreName = "dsl-fkjoin-result-store" + suffix;
+
+        createTopics(namesTopic, agesTopic, outputTopic);
+
+        GenericAvroSerde keySerde = createKeySerde();
+        GenericAvroSerde valueSerde = createValueSerde();
+
+        StreamsBuilder builder = new StreamsBuilder();
+
+        // Names table: key=person, value.line=age key (FK into ages table)
+        KTable<GenericRecord, GenericRecord> namesTable =
+            builder.table(namesTopic, Consumed.with(keySerde, valueSerde),
+                Materialized.<GenericRecord, GenericRecord>as(
+                        Stores.persistentTimestampedKeyValueStoreWithHeaders(namesStoreName))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde));
+
+        // Ages table: key=age key, value.line=age value
+        KTable<GenericRecord, GenericRecord> agesTable =
+            builder.table(agesTopic, Consumed.with(keySerde, valueSerde),
+                Materialized.<GenericRecord, GenericRecord>as(
+                        Stores.persistentTimestampedKeyValueStoreWithHeaders(agesStoreName))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde));
+
+        namesTable.join(agesTable,
+                // FK extractor: names value's "line" field is the FK (age key).
+                nameValue -> {
+                    GenericRecord fk = new GenericData.Record(keySchema);
+                    fk.put("word", nameValue.get("line").toString());
+                    return fk;
+                },
+                // Joiner: returns null when age value is "0" to exercise the null-join
+                // tombstone path; otherwise concatenates the FK string with the age value.
+                (nameValue, ageValue) -> {
+                    if ("0".equals(ageValue.get("line").toString())) {
+                        return null;
+                    }
+                    GenericRecord joined = new GenericData.Record(valueSchema);
+                    joined.put("line", nameValue.get("line") + ", age " + ageValue.get("line"));
+                    return joined;
+                },
+                Materialized.<GenericRecord, GenericRecord>as(
+                        Stores.persistentTimestampedKeyValueStoreWithHeaders(joinStoreName))
+                    .withKeySerde(keySerde)
+                    .withValueSerde(valueSerde))
+            .toStream()
+            .to(outputTopic, Produced.with(keySerde, valueSerde));
+
+        String applicationId = "dsl-fkjoin-test" + suffix;
+        String namesChangelog = changelogTopicFor(applicationId, namesStoreName);
+        String agesChangelog = changelogTopicFor(applicationId, agesStoreName);
+        String joinChangelog = changelogTopicFor(applicationId, joinStoreName);
+
+        KafkaStreams streams = null;
+        try {
+            streams = startStreamsAndAwaitRunning(
+                builder.build(), applicationId, cachingEnabled);
+
+            // Phase 1 — populate ages first so when names lands the FK lookup hits an
+            // existing ages entry rather than a transient miss.
+            produce(agesTopic,
+                KeyValue.pair(createKey("age30"), createTextLine("30")),
+                KeyValue.pair(createKey("age25"), createTextLine("25")));
+
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> agesStore =
+                headersStore(streams, agesStoreName);
+            assertNotNull(agesStore, "ages store should be queryable");
+            TestUtils.waitForCondition(
+                () -> agesStore.get(createKey("age30")) != null
+                    && agesStore.get(createKey("age25")) != null,
+                10_000,
+                "ages store should be populated before producing names");
+
+            produce(namesTopic,
+                KeyValue.pair(createKey("alice"), createTextLine("age30")),
+                KeyValue.pair(createKey("bob"), createTextLine("age25")),
+                KeyValue.pair(createKey("carol"), createTextLine("age30")));
+
+            // Initial 3 join emissions.
+            List<ConsumerRecord<GenericRecord, GenericRecord>> initialResults =
+                consumeRecords(outputTopic, "dsl-fkjoin-consumer-initial" + suffix, 3,
+                    KafkaAvroDeserializer.class);
+            assertEquals(3, initialResults.size(),
+                "Should have exactly 3 initial FK join results");
+
+            Map<String, String> initialJoined = new HashMap<>();
+            for (ConsumerRecord<GenericRecord, GenericRecord> record : initialResults) {
+                initialJoined.put(record.key().get("word").toString(),
+                    record.value().get("line").toString());
+                assertSchemaIdHeaders(record.headers(), outputTopic,
+                    "FK join initial output " + record.key().get("word"));
+            }
+            assertEquals("age30, age 30", initialJoined.get("alice"));
+            assertEquals("age25, age 25", initialJoined.get("bob"));
+            assertEquals("age30, age 30", initialJoined.get("carol"));
+
+            // IQv1 verification — names source store.
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> namesStore =
+                headersStore(streams, namesStoreName);
+            assertNotNull(namesStore, "names store should be queryable");
+
+            ValueTimestampHeaders<GenericRecord> aliceName = namesStore.get(createKey("alice"));
+            assertNotNull(aliceName, "names store: alice should exist");
+            assertEquals("age30", aliceName.value().get("line").toString());
+            assertSchemaIdHeaders(aliceName.headers(), namesChangelog, "names store: alice");
+
+            ValueTimestampHeaders<GenericRecord> bobName = namesStore.get(createKey("bob"));
+            assertNotNull(bobName, "names store: bob should exist");
+            assertEquals("age25", bobName.value().get("line").toString());
+            assertSchemaIdHeaders(bobName.headers(), namesChangelog, "names store: bob");
+
+            ValueTimestampHeaders<GenericRecord> carolName = namesStore.get(createKey("carol"));
+            assertNotNull(carolName, "names store: carol should exist");
+            assertEquals("age30", carolName.value().get("line").toString());
+            assertSchemaIdHeaders(carolName.headers(), namesChangelog, "names store: carol");
+
+            // IQv1 verification — ages source store.
+            ValueTimestampHeaders<GenericRecord> age30Result = agesStore.get(createKey("age30"));
+            assertNotNull(age30Result, "ages store: age30 should exist");
+            assertEquals("30", age30Result.value().get("line").toString());
+            assertSchemaIdHeaders(age30Result.headers(), agesChangelog, "ages store: age30");
+
+            ValueTimestampHeaders<GenericRecord> age25Result = agesStore.get(createKey("age25"));
+            assertNotNull(age25Result, "ages store: age25 should exist");
+            assertEquals("25", age25Result.value().get("line").toString());
+            assertSchemaIdHeaders(age25Result.headers(), agesChangelog, "ages store: age25");
+
+            // IQv1 verification — join result store.
+            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> joinStore =
+                headersStore(streams, joinStoreName);
+            assertNotNull(joinStore, "FK join store should be queryable");
+
+            ValueTimestampHeaders<GenericRecord> aliceResult = joinStore.get(createKey("alice"));
+            assertNotNull(aliceResult, "IQv1: alice should exist in FK join store");
+            assertEquals("age30, age 30", aliceResult.value().get("line").toString());
+            assertSchemaIdHeaders(aliceResult.headers(), joinChangelog, "IQv1 FK join get alice");
+
+            ValueTimestampHeaders<GenericRecord> bobResult = joinStore.get(createKey("bob"));
+            assertNotNull(bobResult, "IQv1: bob should exist in FK join store");
+            assertEquals("age25, age 25", bobResult.value().get("line").toString());
+            assertSchemaIdHeaders(bobResult.headers(), joinChangelog, "IQv1 FK join get bob");
+
+            // Phase 2 — FK re-route. carol's FK changes age30 → age25; the join entry
+            // for carol must update to reflect the new FK target.
+            produce(namesTopic, KeyValue.pair(createKey("carol"), createTextLine("age25")));
+
+            TestUtils.waitForCondition(
+                () -> {
+                    ValueTimestampHeaders<GenericRecord> v = joinStore.get(createKey("carol"));
+                    return v != null && v.value() != null
+                        && "age25, age 25".equals(v.value().get("line").toString());
+                },
+                10_000,
+                "IQv1 FK join: carol should re-route to age25");
+
+            List<ConsumerRecord<GenericRecord, GenericRecord>> reRouteResults =
+                consumeRecords(outputTopic, "dsl-fkjoin-consumer-reroute" + suffix, 4,
+                    KafkaAvroDeserializer.class);
+            assertEquals(4, reRouteResults.size(),
+                "Output should have 4 records after re-route (3 initial + 1 carol update)");
+            ConsumerRecord<GenericRecord, GenericRecord> carolReroute = reRouteResults.get(3);
+            assertEquals("carol", carolReroute.key().get("word").toString());
+            assertEquals("age25, age 25", carolReroute.value().get("line").toString());
+            assertSchemaIdHeaders(carolReroute.headers(), outputTopic, "FK join carol re-route");
+
+            // Phase 3 — FK target value update. age30 → "31". Only alice still points at
+            // age30 (carol re-routed in phase 2), so only alice refreshes.
+            produce(agesTopic, KeyValue.pair(createKey("age30"), createTextLine("31")));
+
+            TestUtils.waitForCondition(
+                () -> {
+                    ValueTimestampHeaders<GenericRecord> v = joinStore.get(createKey("alice"));
+                    return v != null && v.value() != null
+                        && "age30, age 31".equals(v.value().get("line").toString());
+                },
+                10_000,
+                "IQv1 FK join: alice should refresh to age 31 after age30 value update");
+
+            List<ConsumerRecord<GenericRecord, GenericRecord>> updateResults =
+                consumeRecords(outputTopic, "dsl-fkjoin-consumer-fkupdate" + suffix, 5,
+                    KafkaAvroDeserializer.class);
+            assertEquals(5, updateResults.size(),
+                "Output should have 5 records after FK value update (4 + 1 alice refresh)");
+            ConsumerRecord<GenericRecord, GenericRecord> aliceRefresh = updateResults.get(4);
+            assertEquals("alice", aliceRefresh.key().get("word").toString());
+            assertEquals("age30, age 31", aliceRefresh.value().get("line").toString());
+            assertSchemaIdHeaders(aliceRefresh.headers(), outputTopic, "FK join alice refresh");
+
+            // Phase 4 — FK target tombstone. delete age30; alice (still FK→age30) gets
+            // tombstoned. bob (FK→age25) and carol (re-routed FK→age25) are unaffected.
+            produce(agesTopic, KeyValue.pair(createKey("age30"), null));
+
+            TestUtils.waitForCondition(
+                () -> {
+                    ValueTimestampHeaders<GenericRecord> v = joinStore.get(createKey("alice"));
+                    return v == null || v.value() == null;
+                },
+                10_000,
+                "IQv1 FK join: alice should be tombstoned after age30 deletion");
+
+            ValueTimestampHeaders<GenericRecord> bobAfterAge30Tombstone = joinStore.get(createKey("bob"));
+            assertNotNull(bobAfterAge30Tombstone, "IQv1 FK join: bob should still exist");
+            assertEquals("age25, age 25", bobAfterAge30Tombstone.value().get("line").toString());
+
+            List<ConsumerRecord<GenericRecord, GenericRecord>> tombstoneResults =
+                consumeRecords(outputTopic, "dsl-fkjoin-consumer-tombstone" + suffix, 6,
+                    KafkaAvroDeserializer.class);
+            assertEquals(6, tombstoneResults.size(),
+                "Output should have 6 records after age30 tombstone");
+            ConsumerRecord<GenericRecord, GenericRecord> aliceTombstone = tombstoneResults.get(5);
+            assertEquals("alice", aliceTombstone.key().get("word").toString());
+            assertNull(aliceTombstone.value(), "alice tombstone should have null value");
+            assertKeySchemaIdHeader(aliceTombstone.headers(), outputTopic,
+                "FK join alice tombstone");
+
+            // Phase 5 — names-side tombstone. delete bob from names; bob is removed from
+            // the join store regardless of what the ages side shows.
+            produce(namesTopic, KeyValue.pair(createKey("bob"), null));
+
+            TestUtils.waitForCondition(
+                () -> {
+                    ValueTimestampHeaders<GenericRecord> v = joinStore.get(createKey("bob"));
+                    return v == null || v.value() == null;
+                },
+                10_000,
+                "IQv1 FK join: bob should be tombstoned after names-side deletion");
+
+            List<ConsumerRecord<GenericRecord, GenericRecord>> namesDeleteResults =
+                consumeRecords(outputTopic, "dsl-fkjoin-consumer-namesdelete" + suffix, 7,
+                    KafkaAvroDeserializer.class);
+            assertEquals(7, namesDeleteResults.size(),
+                "Output should have 7 records after names-side bob deletion");
+            ConsumerRecord<GenericRecord, GenericRecord> bobTombstone = namesDeleteResults.get(6);
+            assertEquals("bob", bobTombstone.key().get("word").toString());
+            assertNull(bobTombstone.value(), "bob tombstone should have null value");
+            assertKeySchemaIdHeader(bobTombstone.headers(), outputTopic,
+                "FK join bob tombstone");
+
+            // Phase 6 — null joiner result. age25 → "0"; the joiner returns null, which
+            // tombstones carol (bob is already gone via the names-side tombstone).
+            produce(agesTopic, KeyValue.pair(createKey("age25"), createTextLine("0")));
+
+            TestUtils.waitForCondition(
+                () -> {
+                    ValueTimestampHeaders<GenericRecord> v = joinStore.get(createKey("carol"));
+                    return v == null || v.value() == null;
+                },
+                10_000,
+                "IQv1 FK join: carol should be tombstoned after null joiner result");
+
+            List<ConsumerRecord<GenericRecord, GenericRecord>> nullJoinResults =
+                consumeRecords(outputTopic, "dsl-fkjoin-consumer-nulljoin" + suffix, 8,
+                    KafkaAvroDeserializer.class);
+            assertEquals(8, nullJoinResults.size(),
+                "Output should have 8 records after null joiner result");
+            ConsumerRecord<GenericRecord, GenericRecord> carolTombstone = nullJoinResults.get(7);
+            assertEquals("carol", carolTombstone.key().get("word").toString());
+            assertNull(carolTombstone.value(), "carol tombstone should have null value");
+            assertKeySchemaIdHeader(carolTombstone.headers(), outputTopic,
+                "FK join carol tombstone");
+
+            // Changelog verification — join result store: 8 records (3 initial + 1 re-route
+            // + 1 alice refresh + 3 tombstones for alice/bob/carol).
+            List<ConsumerRecord<GenericRecord, GenericRecord>> joinChangelogRecords =
+                consumeRecords(joinChangelog,
+                    "dsl-fkjoin-result-changelog-consumer" + suffix, 8, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> joinLastByKey =
+                lastRecordPerKey(joinChangelogRecords);
+            assertEquals(3, joinLastByKey.size(),
+                "join changelog should have 3 unique keys, got " + joinLastByKey.keySet());
+            assertNull(joinLastByKey.get("alice").value(),
+                "join changelog alice final should be tombstoned (FK age30 deleted)");
+            assertNull(joinLastByKey.get("bob").value(),
+                "join changelog bob final should be tombstoned (names-side delete)");
+            assertNull(joinLastByKey.get("carol").value(),
+                "join changelog carol final should be tombstoned (null joiner)");
+
+            assertChangelogHeaders(joinChangelogRecords, joinChangelog,
+                Set.of("alice", "bob", "carol"), "FK join changelog");
+
+            if (!cachingEnabled) {
+                assertEquals(8, joinChangelogRecords.size(),
+                    "Join changelog (uncached) should have exactly 8 records");
+            }
+
+            // Changelog verification — names source store: 5 records
+            // (alice/bob/carol initial + carol re-route + bob tombstone).
+            List<ConsumerRecord<GenericRecord, GenericRecord>> namesChangelogRecords =
+                consumeRecords(namesChangelog,
+                    "dsl-fkjoin-names-changelog-consumer" + suffix, 5, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> namesLastByKey =
+                lastRecordPerKey(namesChangelogRecords);
+            assertEquals(3, namesLastByKey.size(),
+                "names changelog should have 3 unique keys, got " + namesLastByKey.keySet());
+            assertEquals("age30", namesLastByKey.get("alice").value().get("line").toString(),
+                "names changelog alice final value");
+            assertNull(namesLastByKey.get("bob").value(),
+                "names changelog bob final should be tombstoned");
+            assertEquals("age25", namesLastByKey.get("carol").value().get("line").toString(),
+                "names changelog carol final value (re-routed)");
+
+            assertChangelogHeaders(namesChangelogRecords, namesChangelog,
+                Collections.singleton("bob"), "names changelog");
+
+            if (!cachingEnabled) {
+                assertEquals(5, namesChangelogRecords.size(),
+                    "Names changelog (uncached) should have exactly 5 records");
+            }
+
+            // Changelog verification — ages source store: 5 records
+            // (age30: 30, age25: 25, age30: 31, age30 tombstone, age25: 0).
+            List<ConsumerRecord<GenericRecord, GenericRecord>> agesChangelogRecords =
+                consumeRecords(agesChangelog,
+                    "dsl-fkjoin-ages-changelog-consumer" + suffix, 5, KafkaAvroDeserializer.class);
+            Map<String, ConsumerRecord<GenericRecord, GenericRecord>> agesLastByKey =
+                lastRecordPerKey(agesChangelogRecords);
+            assertEquals(2, agesLastByKey.size(),
+                "ages changelog should have 2 unique keys, got " + agesLastByKey.keySet());
+            assertNull(agesLastByKey.get("age30").value(),
+                "ages changelog age30 final should be tombstoned");
+            assertEquals("0", agesLastByKey.get("age25").value().get("line").toString(),
+                "ages changelog age25 final value (set to 0 to trigger null joiner)");
+
+            assertChangelogHeaders(agesChangelogRecords, agesChangelog,
+                Collections.singleton("age30"), "ages changelog");
+
+            if (!cachingEnabled) {
+                assertEquals(5, agesChangelogRecords.size(),
+                    "Ages changelog (uncached) should have exactly 5 records");
+            }
+
+        } finally {
+            closeStreams(streams);
+        }
+    }
+
+    /**
      * Verifies that {@code suppress()} works correctly with headers-aware stores.
      * suppress() buffers records internally and emits only after the time limit.
      */
@@ -3030,286 +3394,6 @@ public class TimestampedKeyValueStoreWithHeadersDslIntegrationTest extends Times
                         "changelog " + key);
                 }
             }
-
-        } finally {
-            closeStreams(streams);
-        }
-    }
-
-    /**
-     * Verifies foreign-key KTable-KTable join works correctly with headers-aware stores.
-     * Names table: key=person, value.line=person's age key (FK into ages table).
-     * Ages table: key=age key, value.line=age value.
-     * Same name/age domain as {@link #shouldJoinTablesWithHeaders} but with FK semantics.
-     */
-    @Disabled
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    public void shouldForeignKeyJoinWithHeaders(boolean cachingEnabled) throws Exception {
-        String suffix = suffixOf(cachingEnabled);
-        String namesTopic = "dsl-fkjoin-names" + suffix;
-        String agesTopic = "dsl-fkjoin-ages" + suffix;
-        String outputTopic = "dsl-fkjoin-output" + suffix;
-        String namesStoreName = "dsl-fkjoin-names-store" + suffix;
-        String agesStoreName = "dsl-fkjoin-ages-store" + suffix;
-        String joinStoreName = "dsl-fkjoin-result-store" + suffix;
-
-        createTopics(namesTopic, agesTopic, outputTopic);
-
-        GenericAvroSerde keySerde = createKeySerde();
-        GenericAvroSerde valueSerde = createValueSerde();
-
-        StreamsBuilder builder = new StreamsBuilder();
-
-        // Names table: key=person, value.line=age key (FK into ages table)
-        KTable<GenericRecord, GenericRecord> namesTable =
-            builder.table(namesTopic, Consumed.with(keySerde, valueSerde),
-                Materialized.<GenericRecord, GenericRecord>as(
-                        Stores.persistentTimestampedKeyValueStoreWithHeaders(namesStoreName))
-                    .withKeySerde(keySerde)
-                    .withValueSerde(valueSerde));
-
-        // Ages table: key=age key, value.line=age value
-        KTable<GenericRecord, GenericRecord> agesTable =
-            builder.table(agesTopic, Consumed.with(keySerde, valueSerde),
-                Materialized.<GenericRecord, GenericRecord>as(
-                        Stores.persistentTimestampedKeyValueStoreWithHeaders(agesStoreName))
-                    .withKeySerde(keySerde)
-                    .withValueSerde(valueSerde));
-
-        // FK join: extract age key from names value, join with ages table
-        namesTable.join(agesTable,
-                // FK extractor: names value's "line" field is the FK (age key)
-                nameValue -> {
-                    GenericRecord fk = new GenericData.Record(keySchema);
-                    fk.put("word", nameValue.get("line").toString());
-                    return fk;
-                },
-                // Tombstone handling
-                (nameValue, ageValue) -> {
-                    if ("0".equals(ageValue.get("line").toString())) {
-                        return null;
-                    }
-                    // Joiner: combine name with age.
-                    GenericRecord joined = new GenericData.Record(valueSchema);
-                    joined.put("line", nameValue.get("line") + ", age " + ageValue.get("line"));
-                    return joined;
-                },
-                Materialized.<GenericRecord, GenericRecord>as(
-                        Stores.persistentTimestampedKeyValueStoreWithHeaders(joinStoreName))
-                    .withKeySerde(keySerde)
-                    .withValueSerde(valueSerde))
-            .toStream()
-            .to(outputTopic, Produced.with(keySerde, valueSerde));
-
-        String applicationId = "dsl-fkjoin-test" + suffix;
-        String namesChangelog = applicationId + "-" + namesStoreName + "-changelog";
-        String agesChangelog = applicationId + "-" + agesStoreName + "-changelog";
-        String joinChangelog = applicationId + "-" + joinStoreName + "-changelog";
-
-        // Test normal FK join
-        KafkaStreams streams = null;
-        try {
-            streams = startStreamsAndAwaitRunning(
-                builder.build(), applicationId, cachingEnabled);
-
-            // Ages table: age keys → age values
-            produce(agesTopic,
-                KeyValue.pair(createKey("age30"), createTextLine("30")),
-                KeyValue.pair(createKey("age25"), createTextLine("25")));
-
-            Thread.sleep(2000);
-
-            // Names table: people → age key FK
-            produce(namesTopic,
-                KeyValue.pair(createKey("alice"), createTextLine("age30")),
-                KeyValue.pair(createKey("bob"), createTextLine("age25")),
-                KeyValue.pair(createKey("carol"), createTextLine("age30")));
-
-            List<ConsumerRecord<GenericRecord, GenericRecord>> results =
-                consumeRecords(outputTopic, "dsl-fkjoin-consumer" + suffix, 3, KafkaAvroDeserializer.class);
-
-            assertEquals(3, results.size(),
-                "Should have exactly 3 FK join results, got " + results.size());
-
-            Map<String, String> joinValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, GenericRecord> record : results) {
-                joinValues.put(
-                    record.key().get("word").toString(),
-                    record.value().get("line").toString());
-                assertSchemaIdHeaders(record.headers(), outputTopic,
-                    "FK join output " + record.key().get("word"));
-            }
-            assertEquals("age30, age 30", joinValues.get("alice"));
-            assertEquals("age25, age 25", joinValues.get("bob"));
-            assertEquals("age30, age 30", joinValues.get("carol"));
-
-            // IQv1 verification — names source store
-            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> namesStore =
-                headersStore(streams, namesStoreName);
-
-            ValueTimestampHeaders<GenericRecord> aliceName = namesStore.get(createKey("alice"));
-            assertNotNull(aliceName, "names store: alice should exist");
-            assertEquals("age30", aliceName.value().get("line").toString());
-            assertSchemaIdHeaders(aliceName.headers(), namesChangelog, "names store: alice");
-
-            ValueTimestampHeaders<GenericRecord> bobName = namesStore.get(createKey("bob"));
-            assertNotNull(bobName, "names store: bob should exist");
-            assertEquals("age25", bobName.value().get("line").toString());
-            assertSchemaIdHeaders(bobName.headers(), namesChangelog, "names store: bob");
-
-            ValueTimestampHeaders<GenericRecord> carolName = namesStore.get(createKey("carol"));
-            assertNotNull(carolName, "names store: carol should exist");
-            assertEquals("age30", carolName.value().get("line").toString());
-            assertSchemaIdHeaders(carolName.headers(), namesChangelog, "names store: carol");
-
-            // IQv1 verification — ages source store
-            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> agesStore =
-                headersStore(streams, agesStoreName);
-
-            ValueTimestampHeaders<GenericRecord> age30Result = agesStore.get(createKey("age30"));
-            assertNotNull(age30Result, "ages store: age30 should exist");
-            assertEquals("30", age30Result.value().get("line").toString());
-            assertSchemaIdHeaders(age30Result.headers(), agesChangelog, "ages store: age30");
-
-            ValueTimestampHeaders<GenericRecord> age25Result = agesStore.get(createKey("age25"));
-            assertNotNull(age25Result, "ages store: age25 should exist");
-            assertEquals("25", age25Result.value().get("line").toString());
-            assertSchemaIdHeaders(age25Result.headers(), agesChangelog, "ages store: age25");
-
-            // IQv1 verification — join result store
-            ReadOnlyKeyValueStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> joinStore =
-                headersStore(streams, joinStoreName);
-            assertNotNull(joinStore, "FK join store should be queryable");
-
-            ValueTimestampHeaders<GenericRecord> aliceResult = joinStore.get(createKey("alice"));
-            assertNotNull(aliceResult, "IQv1: alice should exist in FK join store");
-            assertEquals("age30, age 30", aliceResult.value().get("line").toString());
-            assertSchemaIdHeaders(aliceResult.headers(), joinChangelog, "IQv1 FK join get alice");
-
-            ValueTimestampHeaders<GenericRecord> bobResult = joinStore.get(createKey("bob"));
-            assertNotNull(bobResult, "IQv1: bob should exist in FK join store");
-            assertEquals("age25, age 25", bobResult.value().get("line").toString());
-            assertSchemaIdHeaders(bobResult.headers(), joinChangelog, "IQv1 FK join get bob");
-
-            // Test FK re-route: change carol's FK from age30 → age25.
-            // Join store result for carol must update to reflect the new FK target.
-            produce(namesTopic, KeyValue.pair(createKey("carol"), createTextLine("age25")));
-
-            TestUtils.waitForCondition(
-                () -> {
-                    ValueTimestampHeaders<GenericRecord> v = joinStore.get(createKey("carol"));
-                    return v != null && v.value() != null
-                        && "age25, age 25".equals(v.value().get("line").toString());
-                },
-                10_000,
-                "IQv1 FK join: carol should re-route to age25");
-            ValueTimestampHeaders<GenericRecord> aliceAfterCarolFkChange = joinStore.get(createKey("alice"));
-            assertNotNull(aliceAfterCarolFkChange, "IQv1 FK join after re-route: alice should still exist");
-            assertEquals("age30, age 30", aliceAfterCarolFkChange.value().get("line").toString());
-            ValueTimestampHeaders<GenericRecord> bobAfterCarolFkChange = joinStore.get(createKey("bob"));
-            assertNotNull(bobAfterCarolFkChange, "IQv1 FK join after re-route: bob should still exist");
-            assertEquals("age25, age 25", bobAfterCarolFkChange.value().get("line").toString());
-
-            // Test FK tombstone: delete age30.
-            // alice (still FK→age30) must be tombstoned in the join store
-            produce(agesTopic, KeyValue.pair(createKey("age30"), null));
-
-            TestUtils.waitForCondition(
-                () -> {
-                    ValueTimestampHeaders<GenericRecord> v = joinStore.get(createKey("alice"));
-                    return v == null || v.value() == null;
-                },
-                10_000,
-                "IQv1 FK join: alice should be tombstoned after age30 deletion");
-            ValueTimestampHeaders<GenericRecord> bobAfterAge30Tombstone = joinStore.get(createKey("bob"));
-            assertNotNull(bobAfterAge30Tombstone, "IQv1 FK join: bob should still exist");
-            assertEquals("age25, age 25", bobAfterAge30Tombstone.value().get("line").toString());
-
-            // Null joiner result: set age25 → "0". Joiner returns null, tombstoning bob and carol.
-            produce(agesTopic, KeyValue.pair(createKey("age25"), createTextLine("0")));
-
-            TestUtils.waitForCondition(
-                () -> {
-                    ValueTimestampHeaders<GenericRecord> b = joinStore.get(createKey("bob"));
-                    ValueTimestampHeaders<GenericRecord> c = joinStore.get(createKey("carol"));
-                    return (b == null || b.value() == null) && (c == null || c.value() == null);
-                },
-                10_000,
-                "IQv1 FK join: bob and carol should be tombstoned after null joiner result");
-
-            // Changelog verification — join result store: alice/bob/carol initial inserts (3),
-            // carol re-route (1), alice tombstone (1), bob+carol null-joiner tombstones (2) = 7.
-            List<ConsumerRecord<GenericRecord, byte[]>> joinChangelogRecords =
-                consumeRecords(joinChangelog,
-                    "dsl-fkjoin-result-changelog-consumer" + suffix, 7,
-                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-
-            Map<String, byte[]> joinChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : joinChangelogRecords) {
-                String key = record.key().get("word").toString();
-                joinChangelogValues.put(key, record.value());
-                assertKeySchemaIdHeader(record.headers(), joinChangelog,
-                    "FK join changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), joinChangelog,
-                        "FK join changelog non-tombstone " + key);
-                }
-            }
-            assertTrue(joinChangelogValues.containsKey("alice"),
-                "Join changelog: alice should appear");
-            assertNull(joinChangelogValues.get("alice"),
-                "Join changelog: alice should end with tombstone (FK age30 deleted)");
-            assertTrue(joinChangelogValues.containsKey("bob"),
-                "Join changelog: bob should appear");
-            assertNull(joinChangelogValues.get("bob"),
-                "Join changelog: bob should end with tombstone (null joiner result)");
-            assertTrue(joinChangelogValues.containsKey("carol"),
-                "Join changelog: carol should appear");
-            assertNull(joinChangelogValues.get("carol"),
-                "Join changelog: carol should end with tombstone (null joiner result)");
-
-            // Changelog verification — names source store: alice + bob + carol + carol re-route = 4.
-            List<ConsumerRecord<GenericRecord, byte[]>> namesChangelogRecords =
-                consumeRecords(namesChangelog,
-                    "dsl-fkjoin-names-changelog-consumer" + suffix, 4,
-                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-
-            for (ConsumerRecord<GenericRecord, byte[]> record : namesChangelogRecords) {
-                String key = record.key().get("word").toString();
-                assertKeySchemaIdHeader(record.headers(), namesChangelog,
-                    "names changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), namesChangelog,
-                        "names changelog non-tombstone " + key);
-                }
-            }
-
-            // Changelog verification — ages source store: age30 + age25 + age30-tombstone + age25-update = 4.
-            List<ConsumerRecord<GenericRecord, byte[]>> agesChangelogRecords =
-                consumeRecords(agesChangelog,
-                    "dsl-fkjoin-ages-changelog-consumer" + suffix, 4,
-                    org.apache.kafka.common.serialization.ByteArrayDeserializer.class);
-
-            Map<String, byte[]> agesChangelogValues = new HashMap<>();
-            for (ConsumerRecord<GenericRecord, byte[]> record : agesChangelogRecords) {
-                String key = record.key().get("word").toString();
-                agesChangelogValues.put(key, record.value());
-                assertKeySchemaIdHeader(record.headers(), agesChangelog,
-                    "ages changelog " + key);
-                if (record.value() != null) {
-                    assertSchemaIdHeaders(record.headers(), agesChangelog,
-                        "ages changelog non-tombstone " + key);
-                }
-            }
-            assertTrue(agesChangelogValues.containsKey("age30"),
-                "Ages changelog: age30 should appear");
-            assertNull(agesChangelogValues.get("age30"),
-                "Ages changelog: age30 should end with tombstone");
-            assertTrue(agesChangelogValues.containsKey("age25"),
-                "Ages changelog: age25 should appear");
-            assertNotNull(agesChangelogValues.get("age25"),
-                "Ages changelog: age25 should have a value (its final state is \"0\")");
 
         } finally {
             closeStreams(streams);
