@@ -16,53 +16,30 @@
 
 package io.confluent.kafka.streams.integration.dsl;
 
-import io.confluent.kafka.schemaregistry.ClusterTestHarness;
-import io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
-import io.confluent.kafka.serializers.KafkaAvroDeserializerConfig;
-import io.confluent.kafka.serializers.KafkaAvroSerializer;
-import io.confluent.kafka.serializers.schema.id.HeaderSchemaIdSerializer;
-import io.confluent.kafka.serializers.schema.id.SchemaId;
 import io.confluent.kafka.streams.serdes.avro.GenericAvroSerde;
-
-import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-import org.apache.avro.Schema;
+import java.util.stream.Stream;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.header.Header;
-import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyValue;
-import org.apache.kafka.streams.StoreQueryParameters;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.apache.kafka.streams.kstream.Aggregator;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.Grouped;
@@ -76,74 +53,23 @@ import org.apache.kafka.streams.kstream.StreamJoined;
 import org.apache.kafka.streams.kstream.Suppressed;
 import org.apache.kafka.streams.kstream.TimeWindows;
 import org.apache.kafka.streams.kstream.WindowedSerdes;
-import org.apache.kafka.streams.processor.StateStore;
-import org.apache.kafka.streams.state.HeadersBytesStoreSupplier;
-import org.apache.kafka.streams.state.QueryableStoreType;
 import org.apache.kafka.streams.state.ReadOnlyWindowStore;
 import org.apache.kafka.streams.state.Stores;
 import org.apache.kafka.streams.state.TimestampedWindowStoreWithHeaders;
 import org.apache.kafka.streams.state.ValueTimestampHeaders;
 import org.apache.kafka.streams.state.WindowBytesStoreSupplier;
-import org.apache.kafka.streams.state.WindowStore;
 import org.apache.kafka.streams.state.WindowStoreIterator;
-import org.apache.kafka.streams.state.internals.CompositeReadOnlyWindowStore;
-import org.apache.kafka.streams.state.internals.StateStoreProvider;
 import org.apache.kafka.test.TestUtils;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.util.stream.Stream;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("IntegrationTest")
-public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends ClusterTestHarness {
-
-    private static final Logger log = LoggerFactory.getLogger(TimestampedWindowStoreWithHeadersDslIntegrationTest.class);
-
-    private static final String KEY_SCHEMA_JSON = "{\"type\":\"record\",\"name\":\"WordKey\",\"fields\":[{\"name\":\"word\",\"type\":\"string\"}]}";
-    private static final String VALUE_SCHEMA_JSON = "{\"type\":\"record\",\"name\":\"TextLine\",\"fields\":[{\"name\":\"line\",\"type\":\"string\"}]}";
-    private static final String AGG_SCHEMA_JSON = "{\"type\":\"record\",\"name\":\"WordCount\",\"fields\":[{\"name\":\"word\",\"type\":\"string\"},{\"name\":\"count\",\"type\":\"long\"}]}";
-    private final Schema keySchema = new Schema.Parser().parse(KEY_SCHEMA_JSON);
-    private final Schema valueSchema = new Schema.Parser().parse(VALUE_SCHEMA_JSON);
-    private final Schema aggSchema = new Schema.Parser().parse(AGG_SCHEMA_JSON);
-
-    // Per-test resources released in @AfterEach to avoid JVM-level accumulation
-    // (RocksDB native handles, schema-registry HTTP clients, on-disk state dirs)
-    // across the parameterized invocations and other tests in the file.
-    private final List<KafkaStreams> openStreams = new ArrayList<>();
-    private final List<GenericAvroSerde> openSerdes = new ArrayList<>();
-
-    public TimestampedWindowStoreWithHeadersDslIntegrationTest() {
-        super(1, true);
-    }
-
-    @AfterEach
-    public void cleanUpStreamsResources() {
-        for (KafkaStreams streams : openStreams) {
-            try {
-                if (streams.state() != KafkaStreams.State.NOT_RUNNING) {
-                    streams.close(Duration.ofSeconds(30));
-                }
-                streams.cleanUp();
-            } catch (Exception e) {
-                log.warn("Failed to clean up KafkaStreams instance", e);
-            }
-        }
-        openStreams.clear();
-        for (GenericAvroSerde serde : openSerdes) {
-            try {
-                serde.close();
-            } catch (Exception e) {
-                log.warn("Failed to close GenericAvroSerde", e);
-            }
-        }
-        openSerdes.clear();
-    }
+public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends TimestampedWindowStoreDslTestBase {
 
     // Parameter provider for cache + grace combinations
     private static Stream<Arguments> cacheAndGraceParams() {
@@ -159,12 +85,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldCountWithTumblingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-input" + suffix;
         String storeName = "window-store" + suffix;
-        String changelogTopic = "window-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -187,18 +112,15 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 .withKeySerde(keySerde)
                 .withValueSerde(Serdes.Long()));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 1000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("hello world from kafka"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("processing streams in real time"))).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("hello world from kafka")),
+            at(baseTime + 1000, createKey("kafka"), createTextLine("processing streams in real time")));
 
         // 1. Verify IQv1 Fetch - initial count
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = windowStore(streams, storeName);
 
         long windowStart = (baseTime / windowSize.toMillis()) * windowSize.toMillis();
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store1 = store;
@@ -216,16 +138,14 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         // 2. Test null value handling - null inputs are counted as events
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
+        produce(inputTopic,
             // Send null value for "kafka" key - counted as an event by count()
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), (GenericRecord) null)).get();
+            at(baseTime + 3000, createKey("kafka"), null),
             // Send normal value for "streams" key
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("streams value"))).get();
-            producer.flush();
-        }
+            at(baseTime + 4000, createKey("streams"), createTextLine("streams value")));
 
         // Re-fetch store
-        store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        store = windowStore(streams, storeName);
 
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store2 = store;
         TestUtils.waitForCondition(
@@ -252,18 +172,14 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
 
         // 3. Test grace period if enabled
         if (graceEnabled) {
-            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-                // Advance stream time past window end but within grace
-                // Window: [1000000, 1010000], ends at 1010000, grace until 1015000
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 12000,
-                    createKey("other"), createTextLine("time advance message"))).get();
-                // Now send late record (timestamp in original window, but stream time already advanced)
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000,
-                    createKey("kafka"), createTextLine("within grace period"))).get();
-                producer.flush();
-            }
+            // Advance stream time past window end but within grace
+            // Window: [1000000, 1010000], ends at 1010000, grace until 1015000
+            // Then send late record (timestamp in original window, but stream time already advanced)
+            produce(inputTopic,
+                at(baseTime + 12000, createKey("other"), createTextLine("time advance message")),
+                at(baseTime + 5000, createKey("kafka"), createTextLine("within grace period")));
 
-            store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+            store = windowStore(streams, storeName);
 
             ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store3 = store;
             TestUtils.waitForCondition(
@@ -282,18 +198,14 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             }
 
             // Send too-late record beyond grace period
-            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-                // Advance stream time beyond window + grace (past 1015000)
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 20000,
-                    createKey("other2"), createTextLine("expire grace now"))).get();
-                // Now send too-late record (stream time is past window + grace)
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 8000,
-                    createKey("kafka"), createTextLine("too late rejected"))).get();
-                producer.flush();
-            }
+            // Advance stream time beyond window + grace (past 1015000), then send too-late
+            // record (stream time is past window + grace)
+            produce(inputTopic,
+                at(baseTime + 20000, createKey("other2"), createTextLine("expire grace now")),
+                at(baseTime + 8000, createKey("kafka"), createTextLine("too late rejected")));
 
             // Re-fetch store
-            store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+            store = windowStore(streams, storeName);
 
             ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store4 = store;
             // Wait for the time-advance record ("other2") to land — too-late record stays dropped, kafka stays at 4.
@@ -319,8 +231,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
                 assertKeySchemaIdHeader(record.headers(), changelogTopic, "Changelog header for windowed key");
@@ -333,12 +245,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldCountWithHoppingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-hop-input" + suffix;
         String storeName = "window-hop-store" + suffix;
-        String changelogTopic = "window-hop-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-hop-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -362,23 +273,19 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 .withKeySerde(keySerde)
                 .withValueSerde(Serdes.Long()));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-hop-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 3000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Send records at specific times to create overlapping windows for "kafka"
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("quick brown fox jumps"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), createTextLine("windowed by time"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 7000, createKey("kafka"), createTextLine("late events within grace"))).get();
-
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("streams"), createTextLine("quick brown fox jumps"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 6000, createKey("streams"), createTextLine("windowed by time"))).get();
-            producer.flush();
-        }
+        // Send records at specific times to create overlapping windows for "kafka"
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("quick brown fox jumps")),
+            at(baseTime + 3000, createKey("kafka"), createTextLine("windowed by time")),
+            at(baseTime + 7000, createKey("kafka"), createTextLine("late events within grace")),
+            at(baseTime + 2000, createKey("streams"), createTextLine("quick brown fox jumps")),
+            at(baseTime + 6000, createKey("streams"), createTextLine("windowed by time")));
 
         // Verify multiple overlapping windows exist for "kafka"
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = windowStore(streams, storeName);
 
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> hopStore0 = store;
         TestUtils.waitForCondition(
@@ -426,17 +333,13 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
 
         // Test grace period if enabled
         if (graceEnabled) {
-            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-                // Advance stream time past window end but within grace
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 12000,
-                    createKey("other"), createTextLine("advance stream time"))).get();
-                // Send late record for "other-late" key with old timestamp (within grace)
-                producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000,
-                    createKey("other-late"), createTextLine("late arrival event"))).get();
-                producer.flush();
-            }
+            // Advance stream time past window end but within grace, then send late record
+            // for "other-late" key with old timestamp (within grace)
+            produce(inputTopic,
+                at(baseTime + 12000, createKey("other"), createTextLine("advance stream time")),
+                at(baseTime + 4000, createKey("other-late"), createTextLine("late arrival event")));
 
-            store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+            store = windowStore(streams, storeName);
 
             ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> hopStore = store;
             TestUtils.waitForCondition(
@@ -482,8 +385,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-hop-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
                 assertKeySchemaIdHeader(record.headers(), changelogTopic, "Changelog header for hopping window key");
@@ -500,11 +403,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldCountWithSlidingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached")
-            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-sliding-input" + suffix;
         String storeName = "window-sliding-store" + suffix;
-        String changelogTopic = "window-sliding-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-sliding-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -526,20 +429,17 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 .withKeySerde(keySerde)
                 .withValueSerde(Serdes.Long()));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-sliding-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 15000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("kafka"), createTextLine("third"))).get();
-            // Advance stream time so emit triggers; SlidingWindows requires this for in-window updates to surface.
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 30000, createKey("advance"), createTextLine("advance time"))).get();
-            producer.flush();
-        }
+        // Advance stream time so emit triggers; SlidingWindows requires this for in-window updates to surface.
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("first")),
+            at(baseTime + 2000, createKey("kafka"), createTextLine("second")),
+            at(baseTime + 4000, createKey("kafka"), createTextLine("third")),
+            at(baseTime + 30000, createKey("advance"), createTextLine("advance time")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -571,8 +471,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-sliding-cg-" + testId, expectedRecords,
             ByteArrayDeserializer.class, ByteArrayDeserializer.class);
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
                 assertKeySchemaIdHeader(record.headers(), changelogTopic, "Sliding window changelog");
@@ -588,12 +488,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldAggregateWithTumblingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-agg-input" + suffix;
         String storeName = "window-agg-store" + suffix;
-        String changelogTopic = "window-agg-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-agg-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -634,23 +533,19 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                     .withKeySerde(keySerde)
                     .withValueSerde(aggSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-agg-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 2000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Send 3 records for "kafka" in same window
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("hello world from kafka"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("processing streams in real time"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("headers are preserved"))).get();
-            // Send 2 records for "streams" in same window
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("hello world from kafka"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("processing streams in real time"))).get();
-            producer.flush();
-        }
+        // Send 3 records for "kafka" and 2 for "streams" in the same window
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("hello world from kafka")),
+            at(baseTime + 1000, createKey("kafka"), createTextLine("processing streams in real time")),
+            at(baseTime + 2000, createKey("kafka"), createTextLine("headers are preserved")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("hello world from kafka")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("processing streams in real time")));
 
         // Verify IQv1
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = windowStore(streams, storeName);
 
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> aggStore = store;
         TestUtils.waitForCondition(
@@ -679,10 +574,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         // Null aggregation: send DELETE value to tombstone the window
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 10000, createKey("hello"), createTextLine("hello world from kafka"))).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime + 10000, createKey("hello"), createTextLine("hello world from kafka")));
 
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> aggStore2 = store;
         TestUtils.waitForCondition(
@@ -701,13 +594,10 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         // Send DELETE to tombstone "hello" window
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 11000, createKey("hello"), createTextLine("DELETE"))).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 11000, createKey("hello"), createTextLine("DELETE")));
 
         // Re-fetch store reference in case of rebalance
-        store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        store = windowStore(streams, storeName);
 
         // Verify "hello" is tombstoned
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> finalStore = store;
@@ -731,8 +621,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords =
             consumeRecords(changelogTopic, "agg-changelog-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         boolean sawTombstone = false;
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
@@ -758,11 +648,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldAggregateWithHoppingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached")
-            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-hop-agg-input" + suffix;
         String storeName = "window-hop-agg-store" + suffix;
-        String changelogTopic = "window-hop-agg-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-hop-agg-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -803,20 +693,17 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                     .withKeySerde(keySerde)
                     .withValueSerde(aggSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-hop-agg-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 11000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 7000, createKey("kafka"), createTextLine("third"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("first")),
+            at(baseTime + 3000, createKey("kafka"), createTextLine("second")),
+            at(baseTime + 7000, createKey("kafka"), createTextLine("third")),
+            at(baseTime + 1000, createKey("streams"), createTextLine("first")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("second")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -844,10 +731,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         int kafkaWindowsBefore = windows.size();
 
         // Tombstone kafka via DELETE.
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 8000, createKey("kafka"), createTextLine("DELETE"))).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 8000, createKey("kafka"), createTextLine("DELETE")));
 
         // Wait for kafka windows to be tombstoned.
         TestUtils.waitForCondition(
@@ -886,8 +770,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-hop-agg-cg-" + testId, expectedRecords,
             ByteArrayDeserializer.class, ByteArrayDeserializer.class);
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         boolean sawTombstone = false;
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
@@ -911,12 +795,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldReduceWithTumblingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-reduce-input" + suffix;
         String storeName = "window-reduce-store" + suffix;
-        String changelogTopic = "window-reduce-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-reduce-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -952,23 +835,19 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                     .withKeySerde(keySerde)
                     .withValueSerde(valueSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-reduce-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 4000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Send 3 records for "kafka" in same window
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("hello world from kafka"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("processing streams in real time"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("headers are preserved"))).get();
-            // Send 2 records for "streams" in same window
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("reduce first value"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("reduce second value"))).get();
-            producer.flush();
-        }
+        // Send 3 records for "kafka" and 2 for "streams" in the same window
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("hello world from kafka")),
+            at(baseTime + 1000, createKey("kafka"), createTextLine("processing streams in real time")),
+            at(baseTime + 2000, createKey("kafka"), createTextLine("headers are preserved")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("reduce first value")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("reduce second value")));
 
         // Verify IQv1 Fetch result
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -998,10 +877,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         // Tombstone kafka via DELETE.
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 5000, createKey("kafka"), createTextLine("DELETE")));
 
         // Wait for kafka window to be tombstoned
         TestUtils.waitForCondition(
@@ -1033,8 +909,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-reduce-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         boolean sawTombstone = false;
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
@@ -1058,11 +934,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldReduceWithHoppingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached")
-            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-hop-reduce-input" + suffix;
         String storeName = "window-hop-reduce-store" + suffix;
-        String changelogTopic = "window-hop-reduce-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-hop-reduce-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -1095,20 +971,17 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                     .withKeySerde(keySerde)
                     .withValueSerde(valueSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-hop-reduce-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 12000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("a"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("kafka"), createTextLine("b"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 7000, createKey("kafka"), createTextLine("c"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("x"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("y"))).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("a")),
+            at(baseTime + 3000, createKey("kafka"), createTextLine("b")),
+            at(baseTime + 7000, createKey("kafka"), createTextLine("c")),
+            at(baseTime + 1000, createKey("streams"), createTextLine("x")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("y")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -1136,10 +1009,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         int kafkaWindowsBefore = windows.size();
 
         // Tombstone kafka via DELETE.
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 8000, createKey("kafka"), createTextLine("DELETE"))).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 8000, createKey("kafka"), createTextLine("DELETE")));
 
         // Wait for kafka windows to be tombstoned or removed.
         TestUtils.waitForCondition(
@@ -1178,8 +1048,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-hop-reduce-cg-" + testId, expectedRecords,
             ByteArrayDeserializer.class, ByteArrayDeserializer.class);
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have at least " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         boolean sawTombstone = false;
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
@@ -1205,13 +1075,12 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldCogroupWithTumblingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic1 = "window-cogroup-input1" + suffix;
         String inputTopic2 = "window-cogroup-input2" + suffix;
         String storeName = "window-cogroup-store" + suffix;
-        String changelogTopic = "window-cogroup-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-cogroup-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic1, inputTopic2);
         GenericAvroSerde keySerde = createKeySerde();
@@ -1258,20 +1127,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                     .withKeySerde(keySerde)
                     .withValueSerde(aggSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-cogroup-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 7000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime + 1000, createKey("kafka"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic2, 0, baseTime + 2000, createKey("kafka"), createTextLine("third"))).get();
-            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime + 3000, createKey("streams"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic2, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
-            producer.flush();
-        }
+        produce(inputTopic1,
+            at(baseTime, createKey("kafka"), createTextLine("first")),
+            at(baseTime + 1000, createKey("kafka"), createTextLine("second")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("first")));
+        produce(inputTopic2,
+            at(baseTime + 2000, createKey("kafka"), createTextLine("third")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("second")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -1295,10 +1162,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         // Tombstone kafka via DELETE.
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic1, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
-            producer.flush();
-        }
+        produce(inputTopic1, at(baseTime + 5000, createKey("kafka"), createTextLine("DELETE")));
 
         TestUtils.waitForCondition(
             () -> getWindowValue(store, createKey("kafka"), 0L, Long.MAX_VALUE) == null,
@@ -1316,8 +1180,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-cogroup-cg-" + testId, expectedRecords, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
 
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have at least " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         boolean sawTombstone = false;
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
@@ -1339,9 +1203,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldStreamStreamsJoinWithHeaders(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String leftTopic = "join-left-input" + suffix;
         String rightTopic = "join-right-input" + suffix;
         String outputTopic = "join-output" + suffix;
@@ -1406,18 +1268,14 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 5000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime, createKey("kafka"), createTextLine("left stream value"))).get();
-            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("right stream value"))).get();
-
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("another left value"))).get();
-            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("another right value"))).get();
-
-            // Send non-matching record (outside join window)
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 20000, createKey("other"), createTextLine("other record no match"))).get();
-
-            producer.flush();
-        }
+        produce(leftTopic,
+            at(baseTime, createKey("kafka"), createTextLine("left stream value")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("another left value")),
+            // Non-matching record (outside join window)
+            at(baseTime + 20000, createKey("other"), createTextLine("other record no match")));
+        produce(rightTopic,
+            at(baseTime + 1000, createKey("kafka"), createTextLine("right stream value")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("another right value")));
 
         // Verify IQv1 queries on join stores before consuming output topic
         Properties consumerProps = createConsumerProps("join-output-cg-" + testId);
@@ -1435,11 +1293,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             }
 
             // Stream-stream join skips null-value inputs on either side
-            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
-                producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
-                producer.flush();
-            }
+            produce(leftTopic, at(baseTime + 50000, createKey("kafka"), null));
+            produce(rightTopic, at(baseTime + 50000, createKey("kafka"), null));
             long afterNullDeadline = System.currentTimeMillis() + 5_000;
             while (System.currentTimeMillis() < afterNullDeadline) {
                 consumer.poll(Duration.ofMillis(500)).forEach(afterNull::add);
@@ -1482,8 +1337,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         closeStreams(streams);
 
         // Verify changelog topics for left and right join stores
-        String leftChangelog = applicationId + "-" + leftJoinStore + "-changelog";
-        String rightChangelog = applicationId + "-" + rightJoinStore + "-changelog";
+        String leftChangelog = changelogTopicFor(applicationId, leftJoinStore);
+        String rightChangelog = changelogTopicFor(applicationId, rightJoinStore);
 
         List<ConsumerRecord<byte[], byte[]>> leftChangelogRecords =
             consumeRecords(leftChangelog, "join-left-changelog-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
@@ -1513,8 +1368,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldStreamStreamsLeftJoinWithHeaders(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached")
-            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String leftTopic = "leftjoin-left-input" + suffix;
         String rightTopic = "leftjoin-right-input" + suffix;
         String outputTopic = "leftjoin-output" + suffix;
@@ -1574,15 +1428,14 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled, extraProps);
 
         long baseTime = 13000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime, createKey("kafka"), createTextLine("L1"))).get();
-            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("R1"))).get();
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 3000, createKey("only-left"), createTextLine("L2"))).get();
+        produce(leftTopic,
+            at(baseTime, createKey("kafka"), createTextLine("L1")),
+            at(baseTime + 3000, createKey("only-left"), createTextLine("L2")),
             // Drain advances stream time past only-left's join-window-close to trigger left-only emission.
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
-            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
-            producer.flush();
-        }
+            at(baseTime + 30000, createKey("drain"), createTextLine("drain")));
+        produce(rightTopic,
+            at(baseTime + 1000, createKey("kafka"), createTextLine("R1")),
+            at(baseTime + 30000, createKey("drain"), createTextLine("drain")));
 
         Properties consumerProps = createConsumerProps("leftjoin-output-cg-" + testId);
         consumerProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -1608,11 +1461,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             }
 
             // Stream-stream leftJoin skips null-value inputs on either side
-            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
-                producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 50000, createKey("kafka"), (GenericRecord) null)).get();
-                producer.flush();
-            }
+            produce(leftTopic, at(baseTime + 50000, createKey("kafka"), null));
+            produce(rightTopic, at(baseTime + 50000, createKey("kafka"), null));
             long afterNullDeadline = System.currentTimeMillis() + 5_000;
             while (System.currentTimeMillis() < afterNullDeadline) {
                 consumer.poll(Duration.ofMillis(500)).forEach(afterNull::add);
@@ -1640,9 +1490,9 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         closeStreams(streams);
 
         // Verify changelog store records for left, right and outer-left join stores.
-        String leftChangelog = applicationId + "-" + leftJoinStore + "-changelog";
-        String rightChangelog = applicationId + "-" + rightJoinStore + "-changelog";
-        String outerLeftChangelog = applicationId + "-" + leftJoinStore + "-left-shared-join-store-changelog";
+        String leftChangelog = changelogTopicFor(applicationId, leftJoinStore);
+        String rightChangelog = changelogTopicFor(applicationId, rightJoinStore);
+        String outerLeftChangelog = changelogTopicFor(applicationId, leftJoinStore + "-left-shared-join-store");
 
         List<ConsumerRecord<byte[], byte[]>> leftChangelogRecords = consumeRecords(
             leftChangelog, "leftjoin-left-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
@@ -1686,8 +1536,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldStreamStreamsOuterJoinWithHeaders(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached")
-            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String leftTopic = "outerjoin-left-input" + suffix;
         String rightTopic = "outerjoin-right-input" + suffix;
         String outputTopic = "outerjoin-output" + suffix;
@@ -1737,16 +1586,15 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
 
         // Produce inputs BEFORE starting streams so the consumer reads them deterministically from offset 0.
         long baseTime = 14000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime, createKey("both"), createTextLine("L1"))).get();
-            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 1000, createKey("both"), createTextLine("R1"))).get();
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 3000, createKey("only-left"), createTextLine("L2"))).get();
-            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 4000, createKey("only-right"), createTextLine("R2"))).get();
-            // Drain advances stream time past join+grace on both sides to trigger left-/right-only emissions.
-            producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
-            producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 30000, createKey("drain"), createTextLine("drain"))).get();
-            producer.flush();
-        }
+        // Drain advances stream time past join+grace on both sides to trigger left-/right-only emissions.
+        produce(leftTopic,
+            at(baseTime, createKey("both"), createTextLine("L1")),
+            at(baseTime + 3000, createKey("only-left"), createTextLine("L2")),
+            at(baseTime + 30000, createKey("drain"), createTextLine("drain")));
+        produce(rightTopic,
+            at(baseTime + 1000, createKey("both"), createTextLine("R1")),
+            at(baseTime + 4000, createKey("only-right"), createTextLine("R2")),
+            at(baseTime + 30000, createKey("drain"), createTextLine("drain")));
 
         String applicationId = "stream-outerjoin-test" + suffix;
         Map<String, Object> extraProps = new HashMap<>();
@@ -1783,11 +1631,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
             }
 
             // Stream-stream outerJoin skips null-value inputs on either side
-            try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-                producer.send(new ProducerRecord<>(leftTopic, 0, baseTime + 50000, createKey("both"), (GenericRecord) null)).get();
-                producer.send(new ProducerRecord<>(rightTopic, 0, baseTime + 50000, createKey("both"), (GenericRecord) null)).get();
-                producer.flush();
-            }
+            produce(leftTopic, at(baseTime + 50000, createKey("both"), null));
+            produce(rightTopic, at(baseTime + 50000, createKey("both"), null));
             long afterNullDeadline = System.currentTimeMillis() + 5_000;
             while (System.currentTimeMillis() < afterNullDeadline) {
                 consumer.poll(Duration.ofMillis(500)).forEach(afterNull::add);
@@ -1817,9 +1662,9 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         closeStreams(streams);
 
         // Verify changelog store records for left, right and outer-join stores.
-        String leftChangelog = applicationId + "-" + leftJoinStore + "-changelog";
-        String rightChangelog = applicationId + "-" + rightJoinStore + "-changelog";
-        String outerSharedChangelog = applicationId + "-" + leftJoinStore + "-outer-shared-join-store-changelog";
+        String leftChangelog = changelogTopicFor(applicationId, leftJoinStore);
+        String rightChangelog = changelogTopicFor(applicationId, rightJoinStore);
+        String outerSharedChangelog = changelogTopicFor(applicationId, leftJoinStore + "-outer-shared-join-store");
 
         List<ConsumerRecord<byte[], byte[]>> leftChangelogRecords = consumeRecords(
             leftChangelog, "outerjoin-left-cg-" + testId, 3, ByteArrayDeserializer.class, ByteArrayDeserializer.class);
@@ -1862,11 +1707,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldAggregateWithSlidingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached")
-            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-sliding-agg-input" + suffix;
         String storeName = "window-sliding-agg-store" + suffix;
-        String changelogTopic = "window-sliding-agg-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-sliding-agg-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -1906,21 +1751,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                     .withKeySerde(keySerde)
                     .withValueSerde(aggSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-sliding-agg-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 16000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Monotonically non-decreasing timestamps so NoGrace sliding windows don't drop late records.
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("kafka"), createTextLine("third"))).get();
-            producer.flush();
-        }
+        // Monotonically non-decreasing timestamps so NoGrace sliding windows don't drop late records.
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("first")),
+            at(baseTime + 1000, createKey("streams"), createTextLine("first")),
+            at(baseTime + 2000, createKey("kafka"), createTextLine("second")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("second")),
+            at(baseTime + 4000, createKey("kafka"), createTextLine("third")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -1948,10 +1790,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         int kafkaWindowsBefore = windows.size();
 
         // Tombstone kafka via DELETE.
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 5000, createKey("kafka"), createTextLine("DELETE")));
 
         // Wait for kafka windows to be tombstoned or removed.
         TestUtils.waitForCondition(
@@ -1990,8 +1829,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         List<ConsumerRecord<byte[], byte[]>> changelogRecords = consumeRecords(
             changelogTopic, "window-sliding-agg-cg-" + testId, expectedRecords,
             ByteArrayDeserializer.class, ByteArrayDeserializer.class);
-        assertTrue(changelogRecords.size() == expectedRecords,
-            "Should have at least " + expectedRecords + " changelog records, got " + changelogRecords.size());
+        assertEquals(expectedRecords, changelogRecords.size(),
+            "Should have " + expectedRecords + " changelog records");
         boolean sawTombstone = false;
         for (ConsumerRecord<byte[], byte[]> record : changelogRecords) {
             if (record.value() != null) {
@@ -2015,11 +1854,11 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldReduceWithSlidingWindows(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached")
-            + (graceEnabled ? "-grace" : "-nograce") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "window-sliding-reduce-input" + suffix;
         String storeName = "window-sliding-reduce-store" + suffix;
-        String changelogTopic = "window-sliding-reduce-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-sliding-reduce-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -2050,21 +1889,18 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                     .withKeySerde(keySerde)
                     .withValueSerde(valueSerde));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-sliding-reduce-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 17000000L;
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Monotonically non-decreasing timestamps so NoGrace sliding windows don't drop late records.
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("a"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("streams"), createTextLine("x"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("b"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("y"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("kafka"), createTextLine("c"))).get();
-            producer.flush();
-        }
+        // Monotonically non-decreasing timestamps so NoGrace sliding windows don't drop late records.
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("a")),
+            at(baseTime + 1000, createKey("streams"), createTextLine("x")),
+            at(baseTime + 2000, createKey("kafka"), createTextLine("b")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("y")),
+            at(baseTime + 4000, createKey("kafka"), createTextLine("c")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<GenericRecord>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -2092,10 +1928,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         int kafkaWindowsBefore = windows.size();
 
         // Tombstone kafka via DELETE.
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("kafka"), createTextLine("DELETE"))).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 5000, createKey("kafka"), createTextLine("DELETE")));
 
         // Wait for kafka windows to be tombstoned or removed.
         TestUtils.waitForCondition(
@@ -2154,13 +1987,12 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @MethodSource("cacheAndGraceParams")
     public void shouldSuppressWithHeaders(boolean cachingEnabled, boolean graceEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = cachingEnabled ? "-cached" : "-uncached";
-        suffix += graceEnabled ? "-grace" : "-nograce";
-        suffix += "-" + testId;
+        String suffix = suffixOf(cachingEnabled, graceEnabled, testId);
         String inputTopic = "suppress-input" + suffix;
         String outputTopic = "suppress-output" + suffix;
         String storeName = "suppress-store" + suffix;
-        String changelogTopic = "suppress-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "suppress-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic, outputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -2190,20 +2022,17 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 new WindowedSerdes.TimeWindowedSerde<>(keySerde, windowSize.toMillis()),
                 Serdes.Long()));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "suppress-test" + suffix, cachingEnabled,
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled,
             Collections.singletonMap(StreamsConfig.COMMIT_INTERVAL_MS_CONFIG, 100L));
 
         long baseTime = 6000000L;
 
         // Send records within first window - should be suppressed (not emitted yet)
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("quick brown fox jumps"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("windowed by time"))).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("quick brown fox jumps")),
+            at(baseTime + 1000, createKey("kafka"), createTextLine("windowed by time")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> suppressStore = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> suppressStore = windowStore(streams, storeName);
         TestUtils.waitForCondition(
             () -> {
                 Long v = getWindowValue(suppressStore, createKey("kafka"), 0L, Long.MAX_VALUE);
@@ -2227,11 +2056,8 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         assertEquals(0, outputRecords.size(), "Should have no output yet (suppressed until window closes)");
 
         // Advance stream time past window close + grace period to trigger suppression release
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Send record far in future to advance stream time
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 10000, createKey("other"), createTextLine("advance stream time"))).get();
-            producer.flush();
-        }
+        // (record far in future advances stream time)
+        produce(inputTopic, at(baseTime + 10000, createKey("other"), createTextLine("advance stream time")));
 
         // The output consumer below polls for up to 10s for the suppressed release.
 
@@ -2260,8 +2086,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         // Verify IQv1 query shows headers
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = windowStore(streams, storeName);
 
         try (WindowStoreIterator<ValueTimestampHeaders<Long>> it = store.fetch(createKey("kafka"), Instant.ofEpochMilli(0), Instant.ofEpochMilli(Long.MAX_VALUE))) {
             assertTrue(it.hasNext(), "Should find kafka window in store");
@@ -2271,16 +2096,12 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
 
         // Test null value handling
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            // Send null value for "kafka" key - should be skipped, not counted
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 20000, createKey("nullvalue"),  createTextLine("null value"))).get();
-            // Send normal value for "streams" key
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 24000, createKey("nullvalue"), (GenericRecord) null)).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime + 20000, createKey("nullvalue"), createTextLine("null value")),
+            at(baseTime + 24000, createKey("nullvalue"), null));
 
         // Re-fetch store
-        store = streams.store(StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        store = windowStore(streams, storeName);
         ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> nullValueStore = store;
         TestUtils.waitForCondition(
             () -> {
@@ -2322,11 +2143,12 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @ValueSource(booleans = {true, false})
     public void shouldProcessWithWindowStore(boolean cachingEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, testId);
         String inputTopic = "window-process-input" + suffix;
         String outputTopic = "window-process-output" + suffix;
         String storeName = "window-process-store" + suffix;
-        String changelogTopic = "window-process-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-process-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic, outputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -2377,23 +2199,20 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 storeName)
             .to(outputTopic, Produced.with(keySerde, Serdes.Long()));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-process-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 9000000L;
         long windowStart = (baseTime / windowSize.toMillis()) * windowSize.toMillis();
 
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("third"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("hello"), createTextLine("first"))).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("first")),
+            at(baseTime + 1000, createKey("kafka"), createTextLine("second")),
+            at(baseTime + 2000, createKey("kafka"), createTextLine("third")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("first")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("second")),
+            at(baseTime + 5000, createKey("hello"), createTextLine("first")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -2417,10 +2236,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         assertKeySchemaIdHeader(helloResult.headers(), inputTopic, "IQv1 process hello");
 
         // Tombstone kafka via null-value record (processor deletes the window).
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 6000, createKey("kafka"), (GenericRecord) null)).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 6000, createKey("kafka"), null));
 
         TestUtils.waitForCondition(
             () -> getWindowValue(store, createKey("kafka"), windowStart, windowSize.toMillis()) == null,
@@ -2489,11 +2305,12 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
     @ValueSource(booleans = {true, false})
     public void shouldProcessValuesWithWindowStore(boolean cachingEnabled) throws Exception {
         String testId = UUID.randomUUID().toString().substring(0, 8);
-        String suffix = (cachingEnabled ? "-cached" : "-uncached") + "-" + testId;
+        String suffix = suffixOf(cachingEnabled, testId);
         String inputTopic = "window-pv-input" + suffix;
         String outputTopic = "window-pv-output" + suffix;
         String storeName = "window-pv-store" + suffix;
-        String changelogTopic = "window-pv-test" + suffix + "-" + storeName + "-changelog";
+        String applicationId = "window-pv-test" + suffix;
+        String changelogTopic = changelogTopicFor(applicationId, storeName);
 
         createTopics(inputTopic, outputTopic);
         GenericAvroSerde keySerde = createKeySerde();
@@ -2542,23 +2359,20 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
                 storeName)
             .to(outputTopic, Produced.with(keySerde, Serdes.Long()));
 
-        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), "window-pv-test" + suffix, cachingEnabled);
+        KafkaStreams streams = startStreamsAndAwaitRunning(builder.build(), applicationId, cachingEnabled);
 
         long baseTime = 10000000L;
         long windowStart = (baseTime / windowSize.toMillis()) * windowSize.toMillis();
 
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime, createKey("kafka"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 1000, createKey("kafka"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 2000, createKey("kafka"), createTextLine("third"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 3000, createKey("streams"), createTextLine("first"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 4000, createKey("streams"), createTextLine("second"))).get();
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 5000, createKey("hello"), createTextLine("first"))).get();
-            producer.flush();
-        }
+        produce(inputTopic,
+            at(baseTime, createKey("kafka"), createTextLine("first")),
+            at(baseTime + 1000, createKey("kafka"), createTextLine("second")),
+            at(baseTime + 2000, createKey("kafka"), createTextLine("third")),
+            at(baseTime + 3000, createKey("streams"), createTextLine("first")),
+            at(baseTime + 4000, createKey("streams"), createTextLine("second")),
+            at(baseTime + 5000, createKey("hello"), createTextLine("first")));
 
-        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = streams.store(
-            StoreQueryParameters.fromNameAndType(storeName, new TimestampedWindowStoreWithHeadersType<>()));
+        ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<Long>> store = windowStore(streams, storeName);
 
         TestUtils.waitForCondition(
             () -> {
@@ -2582,10 +2396,7 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         assertKeySchemaIdHeader(helloResult.headers(), inputTopic, "IQv1 processValues hello");
 
         // Tombstone kafka via null-value record (processor deletes the window).
-        try (KafkaProducer<GenericRecord, GenericRecord> producer = new KafkaProducer<>(createProducerProps())) {
-            producer.send(new ProducerRecord<>(inputTopic, 0, baseTime + 6000, createKey("kafka"), (GenericRecord) null)).get();
-            producer.flush();
-        }
+        produce(inputTopic, at(baseTime + 6000, createKey("kafka"), null));
 
         TestUtils.waitForCondition(
             () -> getWindowValue(store, createKey("kafka"), windowStart, windowSize.toMillis()) == null,
@@ -2643,224 +2454,4 @@ public class TimestampedWindowStoreWithHeadersDslIntegrationTest extends Cluster
         }
     }
 
-    // Custom Window Store Type
-    private static class TimestampedWindowStoreWithHeadersType<K, V>
-        implements QueryableStoreType<ReadOnlyWindowStore<K, ValueTimestampHeaders<V>>> {
-        @Override public boolean accepts(StateStore s) {
-            return s instanceof TimestampedWindowStoreWithHeaders;
-        }
-        @Override public ReadOnlyWindowStore<K, ValueTimestampHeaders<V>> create(StateStoreProvider p, String n) {
-            return new CompositeReadOnlyWindowStore<>(p, this, n);
-        }
-    }
-
-    /**
-     * Wrapper for WindowBytesStoreSupplier that implements HeadersBytesStoreSupplier.
-     * This is needed because RocksDbWindowBytesStoreSupplier doesn't implement HeadersBytesStoreSupplier
-     * even when configured to create header-aware stores, causing the DSL to use the wrong builder.
-     */
-    private static class WindowStoreSupplierWithHeaders implements WindowBytesStoreSupplier, HeadersBytesStoreSupplier {
-        private final WindowBytesStoreSupplier delegate;
-
-        WindowStoreSupplierWithHeaders(WindowBytesStoreSupplier delegate) {
-            this.delegate = delegate;
-        }
-
-        @Override public String name() { return delegate.name(); }
-        @Override public WindowStore<Bytes, byte[]> get() { return delegate.get(); }
-        @Override public String metricsScope() { return delegate.metricsScope(); }
-        @Override public long segmentIntervalMs() { return delegate.segmentIntervalMs(); }
-        @Override public long windowSize() { return delegate.windowSize(); }
-        @Override public boolean retainDuplicates() { return delegate.retainDuplicates(); }
-        @Override public long retentionPeriod() { return delegate.retentionPeriod(); }
-    }
-
-    private void createTopics(String... topicNames) throws Exception {
-        Properties adminProps = new Properties();
-        adminProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        try (AdminClient admin = AdminClient.create(adminProps)) {
-            admin.createTopics(Arrays.stream(topicNames).map(n -> new NewTopic(n, 1, (short) 1)).collect(Collectors.toList())).all().get(30, TimeUnit.SECONDS);
-        }
-    }
-
-    private GenericAvroSerde createKeySerde() {
-        GenericAvroSerde serde = new GenericAvroSerde();
-        Map<String, Object> config = new HashMap<>();
-        config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        config.put(AbstractKafkaSchemaSerDeConfig.KEY_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
-        serde.configure(config, true);
-        openSerdes.add(serde);
-        return serde;
-    }
-
-    private GenericAvroSerde createValueSerde() {
-        GenericAvroSerde serde = new GenericAvroSerde();
-        Map<String, Object> config = new HashMap<>();
-        config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        config.put(AbstractKafkaSchemaSerDeConfig.VALUE_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
-        serde.configure(config, false);
-        openSerdes.add(serde);
-        return serde;
-    }
-
-    private GenericAvroSerde createAggSerde() {
-        GenericAvroSerde serde = new GenericAvroSerde();
-        Map<String, Object> config = new HashMap<>();
-        config.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        config.put(AbstractKafkaSchemaSerDeConfig.VALUE_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
-        serde.configure(config, false);
-        openSerdes.add(serde);
-        return serde;
-    }
-
-    private Properties createProducerProps() {
-        Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
-        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        props.put(AbstractKafkaSchemaSerDeConfig.KEY_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
-        props.put(AbstractKafkaSchemaSerDeConfig.VALUE_SCHEMA_ID_SERIALIZER, HeaderSchemaIdSerializer.class.getName());
-        return props;
-    }
-
-    private Properties createConsumerProps(String groupId) {
-        Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
-        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        props.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, false);
-        return props;
-    }
-
-    private KafkaStreams startStreamsAndAwaitRunning(org.apache.kafka.streams.Topology topology, String appId, boolean cachingEnabled) throws Exception {
-        return startStreamsAndAwaitRunning(topology, appId, cachingEnabled, Collections.emptyMap());
-    }
-
-    private KafkaStreams startStreamsAndAwaitRunning(org.apache.kafka.streams.Topology topology, String appId, boolean cachingEnabled, Map<String, Object> extraProps) throws Exception {
-        Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, appId);
-        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        props.put(StreamsConfig.DSL_STORE_FORMAT_CONFIG, StreamsConfig.DSL_STORE_FORMAT_HEADERS);
-        if (!cachingEnabled) props.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 0);
-        props.putAll(extraProps);
-
-        CountDownLatch startedLatch = new CountDownLatch(1);
-        KafkaStreams streams = new KafkaStreams(topology, props);
-        streams.cleanUp();
-        streams.setStateListener((newState, oldState) -> {
-            if (newState == KafkaStreams.State.RUNNING) {
-                startedLatch.countDown();
-            }
-        });
-        streams.start();
-        assertTrue(startedLatch.await(30, TimeUnit.SECONDS), "KafkaStreams should reach RUNNING state");
-        openStreams.add(streams);
-        return streams;
-    }
-
-    private void closeStreams(KafkaStreams streams) {
-        if (streams != null) {
-            streams.close(Duration.ofSeconds(30));
-            streams.cleanUp();
-        }
-    }
-
-    private void assertSchemaIdHeaders(Headers headers, String topic, String context) {
-        Header keyHeader = headers.lastHeader(SchemaId.KEY_SCHEMA_ID_HEADER);
-        assertNotNull(keyHeader, context + ": should have __key_schema_id header");
-        assertHeaderGuidMatchesSubject(keyHeader.value(), topic + "-key", context + " key");
-
-        Header valueHeader = headers.lastHeader(SchemaId.VALUE_SCHEMA_ID_HEADER);
-        assertNotNull(valueHeader, context + ": should have __value_schema_id header");
-        assertHeaderGuidMatchesSubject(valueHeader.value(), topic + "-value", context + " value");
-    }
-
-    private void assertKeySchemaIdHeader(Headers headers, String topic, String context) {
-        Header keyHeader = headers.lastHeader(SchemaId.KEY_SCHEMA_ID_HEADER);
-        assertNotNull(keyHeader, context + ": should have __key_schema_id header");
-        assertHeaderGuidMatchesSubject(keyHeader.value(), topic + "-key", context + " key");
-    }
-
-    // Cross-checks the schema-id header bytes against Schema Registry: decodes the GUID from
-    // the 17-byte V1 header and asserts it matches the latest registered GUID for the subject.
-    private void assertHeaderGuidMatchesSubject(byte[] headerBytes, String subject, String context) {
-        assertEquals(17, headerBytes.length, context + ": GUID header should be 17 bytes");
-        assertEquals(SchemaId.MAGIC_BYTE_V1, headerBytes[0],
-            context + ": header should have V1 magic byte");
-
-        ByteBuffer bb = ByteBuffer.wrap(headerBytes, 1, 16);
-        UUID headerGuid = new UUID(bb.getLong(), bb.getLong());
-
-        try {
-            io.confluent.kafka.schemaregistry.client.rest.entities.Schema registered =
-                restApp.restClient.getLatestVersion(subject);
-            assertEquals(registered.getGuid(), headerGuid.toString(),
-                context + ": header GUID does not match latest registered GUID for subject " + subject);
-        } catch (Exception e) {
-            fail(context + ": failed to look up subject " + subject + " in Schema Registry: "
-                + e.getMessage());
-        }
-    }
-
-
-    private GenericRecord createKey(String word) {
-        GenericRecord r = new GenericData.Record(keySchema);
-        r.put("word", word);
-        return r;
-    }
-
-    private GenericRecord createTextLine(String line) {
-        GenericRecord r = new GenericData.Record(valueSchema);
-        r.put("line", line);
-        return r;
-    }
-
-    /** Returns the value from the first window for {@code key}, or null if absent/tombstoned. */
-    private <V> V getWindowValue(ReadOnlyWindowStore<GenericRecord, ValueTimestampHeaders<V>> store,
-                                 GenericRecord key, long windowStart, long windowSizeMs) {
-        try (WindowStoreIterator<ValueTimestampHeaders<V>> it =
-                 store.fetch(key, Instant.ofEpochMilli(windowStart), Instant.ofEpochMilli(windowStart + windowSizeMs))) {
-            if (!it.hasNext()) return null;
-            ValueTimestampHeaders<V> v = it.next().value;
-            return (v == null) ? null : v.value();
-        }
-    }
-
-    private <K, V> List<ConsumerRecord<K, V>> consumeRecords(
-        String topic, String groupId, int expectedCount,
-        Class<?> keyDeserializerClass, Class<?> valueDeserializerClass) {
-        Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, brokerList);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, keyDeserializerClass.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, valueDeserializerClass.getName());
-        props.put(AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG, restApp.restConnect);
-        props.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, false);
-
-        List<ConsumerRecord<K, V>> results = new ArrayList<>();
-        try (KafkaConsumer<K, V> consumer = new KafkaConsumer<>(props)) {
-            consumer.subscribe(Collections.singletonList(topic));
-
-            // Priming poll: triggers metadata fetch, coordinator lookup, partition
-            // assignment, and offset reset. Without this, the first real poll can
-            // return empty while assignment is still completing.
-            for (ConsumerRecord<K, V> record : consumer.poll(Duration.ofMillis(100))) {
-                results.add(record);
-            }
-
-            long deadline = System.currentTimeMillis() + 30_000;
-            while (results.size() < expectedCount && System.currentTimeMillis() < deadline) {
-                ConsumerRecords<K, V> records = consumer.poll(Duration.ofMillis(500));
-                for (ConsumerRecord<K, V> record : records) {
-                    results.add(record);
-                }
-            }
-        }
-        return results;
-    }
 }
